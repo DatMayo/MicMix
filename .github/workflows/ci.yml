@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches:
-      - main
+      - "**"
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,30 +18,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Fetch third-party dependencies
+      - name: Build, test and package
         shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Path "third_party" -Force | Out-Null
-
-          if (-not (Test-Path "third_party/ts3_sdk/include/ts3_functions.h")) {
-            git clone https://github.com/teamspeak/ts3client-pluginsdk.git third_party/ts3_sdk
-            git -C third_party/ts3_sdk checkout 4aa90a53aa150cbf81e13bc97e68c0431b26499f
-          }
-
-          if (-not (Test-Path "third_party/speexdsp/libspeexdsp/resample.c")) {
-            git clone https://github.com/xiph/speexdsp.git third_party/speexdsp
-            git -C third_party/speexdsp checkout 7a158783df74efe7c2d1c6ee8363c1e695c71226
-          }
-
-      - name: Configure CMake
-        shell: pwsh
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-
-      - name: Build (Release)
-        shell: pwsh
-        run: cmake --build build --config Release
-
-      - name: Run tests (Release)
-        shell: pwsh
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ./scripts/build.ps1 -Configuration Release

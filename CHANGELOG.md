@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Dark mode for the settings window with an `Appearance` selector (`System` / `Light` / `Dark`). `System` follows the Windows app theme live; the choice is saved as `ui.theme` in the config.
+- Dark window title bar and matching caption colors (Windows 10 1809+ / Windows 11).
+- One-shot build script `scripts/build.ps1` (plus `build.cmd` for double-click): fetches pinned dependencies, configures, builds, runs tests, packages the `.ts3_plugin` and can optionally install the plugin into the local TeamSpeak 3 client (`-Install`).
+
+### Changed
+
+- Refreshed settings UI: rounded cards with soft shadows, anti-aliased drawing via GDI+, modern push buttons with hover/pressed states, on/off switches instead of checkboxes, custom-painted dropdowns, slimmer slider with accent fill, section accents and a framed status console.
+- CI and the release workflow now run `scripts/build.ps1`, so local and CI builds follow the same steps.
+
+### Fixed
+
+- Added the missing `<cmath>` / `<array>` includes in the settings window (`std::floor`, `std::array`).
+- Double clicks on owner-drawn toggles no longer swallow the second click.
+
 ## [1.2.11] - 2026-05-08
 
 ### Changed
