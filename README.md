@@ -111,27 +111,53 @@ Recommended setup:
 
 Prerequisites:
 
-- Windows + Visual Studio 2022 (C++ toolchain).
-- CMake `>= 3.21`.
-- TeamSpeak 3 Plugin SDK in `third_party/ts3_sdk`.
-- SpeexDSP sources in `third_party/speexdsp`.
+- Windows + Visual Studio 2022 or Build Tools 2022 (workload "Desktop development with C++").
+- CMake `>= 3.21` (the copy bundled with Visual Studio is detected automatically).
+- Git.
 
-Build:
+The TeamSpeak 3 Plugin SDK and SpeexDSP are fetched automatically into `third_party/` at pinned commits.
+
+### One-click build
+
+Double-click `build.cmd`, or run from PowerShell:
+
+```powershell
+.\scripts\build.ps1
+```
+
+This fetches dependencies, configures CMake, builds Release, runs the unit tests and creates
+`dist/MicMix-<version>-win64.ts3_plugin`.
+
+Useful options:
+
+| Option | Effect |
+| --- | --- |
+| `-Configuration Debug` | Debug build (no package) |
+| `-Clean` | Delete `build/` before configuring |
+| `-SkipTests` | Skip building and running the unit tests |
+| `-NoPackage` | Do not create the `.ts3_plugin` |
+| `-Version 1.3.0` | Override the version from `VERSION` |
+| `-Install` | Copy the plugin into `%APPDATA%\TS3Client\plugins` (close TeamSpeak first) |
+
+CI and the release workflow use the same script.
+
+### Manual build
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
-```
-
-Package:
-
-```powershell
+ctest --test-dir build -C Release --output-on-failure
 .\scripts\package_ts3_plugin.ps1 -Configuration Release
 ```
 
-Output package:
+## Appearance (Dark Mode)
 
-- `dist/MicMix-<version>-win64.ts3_plugin`
+The settings window has an `Appearance` selector in the top card:
+
+- `System` (default) follows the Windows setting *Settings → Personalization → Colors → Choose your app mode* and switches live.
+- `Light` / `Dark` force a theme.
+
+The choice is stored as `ui.theme=system|light|dark` in the MicMix config.
 
 ## Status
 
