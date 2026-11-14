@@ -11,6 +11,8 @@
 
 #include <atomic>
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdio>
 #include <cwctype>
 #include <exception>
@@ -22,6 +24,14 @@
 #include <vector>
 #include <string>
 
+// GDI+ expects min/max in its namespace; NOMINMAX hides the macros.
+namespace Gdiplus {
+using std::max;
+using std::min;
+}
+#include <objidl.h>
+#include <gdiplus.h>
+
 #include "micmix_core.h"
 #include "micmix_version.h"
 #include "resource.h"
@@ -29,6 +39,7 @@
 #pragma comment(lib, "Comctl32.lib")
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(lib, "UxTheme.lib")
+#pragma comment(lib, "Gdiplus.lib")
 
 namespace {
 
@@ -63,6 +74,9 @@ enum ControlId {
     IDC_REPO_LINK = 1032,
     IDC_MUSIC_CLIP_EVENTS = 1033,
     IDC_MIC_CLIP_EVENTS = 1034,
+    IDC_THEME_SYSTEM = 1035,
+    IDC_THEME_LIGHT = 1036,
+    IDC_THEME_DARK = 1037,
 };
 
 enum class SourceChoiceType {
@@ -91,13 +105,129 @@ struct SourceChoice {
 };
 
 struct UiTheme {
+    bool dark = false;
+    // Surfaces
     COLORREF bg = RGB(241, 244, 248);
     COLORREF card = RGB(255, 255, 255);
-    COLORREF border = RGB(212, 218, 229);
-    COLORREF text = RGB(30, 33, 41);
-    COLORREF muted = RGB(96, 105, 119);
-    COLORREF accent = RGB(33, 112, 218);
+    COLORREF cardShadow = RGB(226, 231, 239);
+    COLORREF border = RGB(222, 227, 236);
+    COLORREF text = RGB(28, 32, 40);
+    COLORREF muted = RGB(100, 108, 122);
+    COLORREF disabledText = RGB(156, 163, 175);
+    COLORREF link = RGB(37, 99, 235);
+    // Accent
+    COLORREF accent = RGB(37, 99, 235);
+    COLORREF accentHover = RGB(29, 78, 216);
+    COLORREF accentPressed = RGB(30, 64, 175);
+    COLORREF accentSecondary = RGB(124, 58, 237);
+    COLORREF accentText = RGB(255, 255, 255);
+    COLORREF accentSoft = RGB(219, 234, 254);
+    // Buttons
+    COLORREF buttonBg = RGB(246, 248, 251);
+    COLORREF buttonHover = RGB(236, 240, 246);
+    COLORREF buttonPressed = RGB(226, 232, 240);
+    COLORREF buttonBorder = RGB(208, 215, 226);
+    COLORREF buttonText = RGB(30, 35, 45);
+    COLORREF buttonDisabledBg = RGB(243, 245, 248);
+    // Inputs / lists
+    COLORREF inputBg = RGB(255, 255, 255);
+    COLORREF selectionBg = RGB(219, 234, 254);
+    COLORREF selectionText = RGB(23, 37, 84);
+    COLORREF comboHeaderText = RGB(100, 108, 122);
+    COLORREF comboDividerText = RGB(190, 196, 206);
+    COLORREF comboPlaceholderText = RGB(140, 146, 156);
+    // Meters
+    COLORREF meterBarBg = RGB(236, 240, 245);
+    COLORREF meterBorder = RGB(214, 220, 229);
+    COLORREF meterTickText = RGB(107, 114, 128);
+    COLORREF meterTick = RGB(160, 168, 180);
+    COLORREF meterGuide = RGB(214, 220, 229);
+    COLORREF meterGuideWarn = RGB(205, 180, 100);
+    COLORREF meterGuideHot = RGB(210, 140, 130);
+    COLORREF meterGreen = RGB(34, 197, 94);
+    COLORREF meterYellow = RGB(234, 179, 8);
+    COLORREF meterRed = RGB(239, 68, 68);
+    COLORREF meterHold = RGB(55, 65, 81);
+    COLORREF clipOff = RGB(226, 231, 238);
+    COLORREF clipBorder = RGB(214, 220, 229);
+    COLORREF clipText = RGB(107, 114, 128);
+    COLORREF clipTextHot = RGB(153, 27, 27);
+    COLORREF clipPulse = RGB(220, 38, 38);
+    // Slider / toggles
+    COLORREF sliderTrack = RGB(214, 220, 229);
+    COLORREF sliderThumb = RGB(255, 255, 255);
+    COLORREF toggleOff = RGB(203, 210, 221);
+    COLORREF toggleOffHover = RGB(186, 195, 209);
+    COLORREF toggleKnob = RGB(255, 255, 255);
+    // Status console
+    COLORREF statusBg = RGB(246, 248, 251);
+    COLORREF statusBorder = RGB(228, 232, 239);
+    COLORREF statusText = RGB(51, 60, 75);
 };
+
+UiTheme MakeLightTheme() {
+    return UiTheme{};
+}
+
+UiTheme MakeDarkTheme() {
+    UiTheme t;
+    t.dark = true;
+    t.bg = RGB(22, 24, 29);
+    t.card = RGB(32, 35, 42);
+    t.cardShadow = RGB(17, 19, 23);
+    t.border = RGB(48, 52, 62);
+    t.text = RGB(230, 233, 239);
+    t.muted = RGB(148, 156, 170);
+    t.disabledText = RGB(96, 103, 116);
+    t.link = RGB(96, 165, 250);
+    t.accent = RGB(59, 130, 246);
+    t.accentHover = RGB(96, 165, 250);
+    t.accentPressed = RGB(37, 99, 235);
+    t.accentSecondary = RGB(139, 92, 246);
+    t.accentText = RGB(255, 255, 255);
+    t.accentSoft = RGB(30, 50, 88);
+    t.buttonBg = RGB(43, 47, 56);
+    t.buttonHover = RGB(53, 58, 69);
+    t.buttonPressed = RGB(63, 69, 82);
+    t.buttonBorder = RGB(60, 65, 77);
+    t.buttonText = RGB(226, 230, 236);
+    t.buttonDisabledBg = RGB(37, 40, 48);
+    t.inputBg = RGB(39, 43, 51);
+    t.selectionBg = RGB(37, 58, 99);
+    t.selectionText = RGB(232, 238, 255);
+    t.comboHeaderText = RGB(148, 156, 170);
+    t.comboDividerText = RGB(80, 86, 98);
+    t.comboPlaceholderText = RGB(120, 126, 138);
+    t.meterBarBg = RGB(24, 27, 33);
+    t.meterBorder = RGB(55, 60, 71);
+    t.meterTickText = RGB(140, 148, 162);
+    t.meterTick = RGB(90, 97, 110);
+    t.meterGuide = RGB(50, 55, 65);
+    t.meterGuideWarn = RGB(118, 104, 56);
+    t.meterGuideHot = RGB(122, 70, 66);
+    t.meterHold = RGB(240, 242, 246);
+    t.clipOff = RGB(46, 51, 61);
+    t.clipBorder = RGB(55, 60, 71);
+    t.clipText = RGB(140, 148, 162);
+    t.clipTextHot = RGB(254, 202, 202);
+    t.sliderTrack = RGB(60, 66, 78);
+    t.sliderThumb = RGB(236, 240, 245);
+    t.toggleOff = RGB(70, 76, 90);
+    t.toggleOffHover = RGB(84, 91, 107);
+    t.toggleKnob = RGB(245, 247, 250);
+    t.statusBg = RGB(26, 29, 35);
+    t.statusBorder = RGB(46, 50, 60);
+    t.statusText = RGB(200, 206, 216);
+    return t;
+}
+
+COLORREF MixColor(COLORREF a, COLORREF b, float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    const auto lerp = [t](int x, int y) {
+        return static_cast<BYTE>(std::lround(static_cast<float>(x) + (static_cast<float>(y - x) * t)));
+    };
+    return RGB(lerp(GetRValue(a), GetRValue(b)), lerp(GetGValue(a), GetGValue(b)), lerp(GetBValue(a), GetBValue(b)));
+}
 
 std::mutex g_mutex;
 std::mutex g_enumMutex;
@@ -112,6 +242,10 @@ std::vector<AppProcessInfo> g_apps;
 std::vector<SourceChoice> g_sourceChoices;
 int g_lastValidSourceSel = -1;
 UiTheme g_theme;
+UiThemeMode g_themeMode = UiThemeMode::System;
+HWND g_hoverControl = nullptr;
+ULONG_PTR g_gdiplusToken = 0;
+bool g_gdiplusReady = false;
 int g_dpi = 96;
 bool g_loadingUi = false;
 int g_hotkeyRefreshTick = 0;
@@ -170,8 +304,11 @@ HFONT g_fontClipInfo = nullptr;
 HFONT g_fontControlLarge = nullptr;
 HFONT g_fontTitle = nullptr;
 HFONT g_fontMono = nullptr;
+HFONT g_fontButton = nullptr;
+HFONT g_fontSection = nullptr;
 HBRUSH g_brushBg = nullptr;
 HBRUSH g_brushCard = nullptr;
+HBRUSH g_brushInput = nullptr;
 
 RECT g_rcSource{};
 RECT g_rcMix{};
@@ -182,6 +319,7 @@ RECT g_rcMicMeter{};
 RECT g_rcMusicClip{};
 RECT g_rcMicClip{};
 RECT g_rcStatus{};
+RECT g_rcThemeSegment{};
 float g_meterVisualDb = -60.0f;
 float g_meterHoldDb = -60.0f;
 float g_micMeterVisualDb = -60.0f;
@@ -207,8 +345,35 @@ int S(int px) {
     return MulDiv(px, g_dpi, 96);
 }
 
+void ApplyTheme(HWND hwnd);
+
 bool IsOwnerCheckboxControlId(int id) {
     return id == IDC_AUTOSTART || id == IDC_FORCE_TX || id == IDC_MIC_INPUT_MUTE || id == IDC_MUTE;
+}
+
+bool IsThemeSegmentControlId(int id) {
+    return id == IDC_THEME_SYSTEM || id == IDC_THEME_LIGHT || id == IDC_THEME_DARK;
+}
+
+bool IsOwnerPushButtonControlId(int id) {
+    switch (id) {
+    case IDC_START:
+    case IDC_STOP:
+    case IDC_SAVE:
+    case IDC_MONITOR:
+    case IDC_RESCAN:
+    case IDC_MUTE_HOTKEY_SET:
+    case IDC_MIC_INPUT_HOTKEY_SET:
+        return true;
+    default:
+        return false;
+    }
+}
+
+UiThemeMode ThemeModeForControlId(int id) {
+    if (id == IDC_THEME_LIGHT) return UiThemeMode::Light;
+    if (id == IDC_THEME_DARK) return UiThemeMode::Dark;
+    return UiThemeMode::System;
 }
 
 bool IsHandCursorControlId(int id) {
@@ -227,6 +392,9 @@ bool IsHandCursorControlId(int id) {
     case IDC_MUTE:
     case IDC_MUTE_HOTKEY_SET:
     case IDC_MIC_INPUT_HOTKEY_SET:
+    case IDC_THEME_SYSTEM:
+    case IDC_THEME_LIGHT:
+    case IDC_THEME_DARK:
         return true;
     default:
         return false;
@@ -415,9 +583,84 @@ HINSTANCE GetPluginModuleHandle() {
     return mod;
 }
 
+bool IsSystemDarkMode() {
+    DWORD value = 1;
+    DWORD size = sizeof(value);
+    const LSTATUS rc = RegGetValueW(
+        HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        L"AppsUseLightTheme",
+        RRF_RT_REG_DWORD,
+        nullptr,
+        &value,
+        &size);
+    return rc == ERROR_SUCCESS && value == 0;
+}
+
+bool ResolveDarkMode(UiThemeMode mode) {
+    switch (mode) {
+    case UiThemeMode::Dark:
+        return true;
+    case UiThemeMode::Light:
+        return false;
+    default:
+        return IsSystemDarkMode();
+    }
+}
+
+void RebuildThemeBrushes() {
+    if (g_brushBg) { DeleteObject(g_brushBg); g_brushBg = nullptr; }
+    if (g_brushCard) { DeleteObject(g_brushCard); g_brushCard = nullptr; }
+    if (g_brushInput) { DeleteObject(g_brushInput); g_brushInput = nullptr; }
+    g_brushBg = CreateSolidBrush(g_theme.bg);
+    g_brushCard = CreateSolidBrush(g_theme.card);
+    g_brushInput = CreateSolidBrush(g_theme.inputBg);
+}
+
+void SelectThemePalette(UiThemeMode mode) {
+    g_theme = ResolveDarkMode(mode) ? MakeDarkTheme() : MakeLightTheme();
+    RebuildThemeBrushes();
+}
+
+void ApplyWindowFrameTheme(HWND hwnd) {
+    if (!hwnd) {
+        return;
+    }
+    using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+    static DwmSetWindowAttributeFn setAttr = []() -> DwmSetWindowAttributeFn {
+        HMODULE dwm = LoadLibraryExW(L"dwmapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if (!dwm) {
+            return nullptr;
+        }
+        return reinterpret_cast<DwmSetWindowAttributeFn>(GetProcAddress(dwm, "DwmSetWindowAttribute"));
+    }();
+    if (!setAttr) {
+        return;
+    }
+    constexpr DWORD kDwmUseImmersiveDarkMode = 20;       // Windows 10 20H1+ / Windows 11
+    constexpr DWORD kDwmUseImmersiveDarkModeLegacy = 19; // Windows 10 1809 - 1909
+    constexpr DWORD kDwmWindowCornerPreference = 33;     // Windows 11
+    constexpr DWORD kDwmBorderColor = 34;                // Windows 11
+    constexpr DWORD kDwmCaptionColor = 35;               // Windows 11
+    constexpr DWORD kDwmTextColor = 36;                  // Windows 11
+    const BOOL dark = g_theme.dark ? TRUE : FALSE;
+    if (FAILED(setAttr(hwnd, kDwmUseImmersiveDarkMode, &dark, sizeof(dark)))) {
+        setAttr(hwnd, kDwmUseImmersiveDarkModeLegacy, &dark, sizeof(dark));
+    }
+    const int roundCorners = 2; // DWMWCP_ROUND
+    setAttr(hwnd, kDwmWindowCornerPreference, &roundCorners, sizeof(roundCorners));
+    const COLORREF caption = g_theme.bg;
+    const COLORREF captionText = g_theme.text;
+    const COLORREF border = g_theme.border;
+    setAttr(hwnd, kDwmCaptionColor, &caption, sizeof(caption));
+    setAttr(hwnd, kDwmTextColor, &captionText, sizeof(captionText));
+    setAttr(hwnd, kDwmBorderColor, &border, sizeof(border));
+}
+
 void EnsureUiResources() {
-    if (!g_brushBg) g_brushBg = CreateSolidBrush(g_theme.bg);
-    if (!g_brushCard) g_brushCard = CreateSolidBrush(g_theme.card);
+    if (!g_brushBg || !g_brushCard || !g_brushInput) RebuildThemeBrushes();
+    if (!g_fontButton) g_fontButton = CreateFontW(-S(13), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI Semibold");
+    if (!g_fontSection) g_fontSection = CreateFontW(-S(11), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI Semibold");
     if (!g_fontBody) g_fontBody = CreateFontW(-S(13), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     if (!g_fontSmall) g_fontSmall = CreateFontW(-S(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     if (!g_fontHint) g_fontHint = CreateFontW(-S(11), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
@@ -443,6 +686,9 @@ void ReleaseUiResources() {
     if (g_fontMono) { DeleteObject(g_fontMono); g_fontMono = nullptr; }
     if (g_brushBg) { DeleteObject(g_brushBg); g_brushBg = nullptr; }
     if (g_brushCard) { DeleteObject(g_brushCard); g_brushCard = nullptr; }
+    if (g_brushInput) { DeleteObject(g_brushInput); g_brushInput = nullptr; }
+    if (g_fontButton) { DeleteObject(g_fontButton); g_fontButton = nullptr; }
+    if (g_fontSection) { DeleteObject(g_fontSection); g_fontSection = nullptr; }
 }
 
 void SetControlFont(HWND hwnd, int id, HFONT font) {
@@ -718,7 +964,13 @@ void UpdateMonitorButton(HWND hwnd) {
         return;
     }
     const bool enabled = MicMixApp::Instance().IsMonitorEnabled();
-    SetWindowTextW(btn, enabled ? L"Monitor Mix: On" : L"Monitor Mix: Off");
+    const wchar_t* next = enabled ? L"Monitor Mix: On" : L"Monitor Mix: Off";
+    wchar_t current[64]{};
+    GetWindowTextW(btn, current, static_cast<int>(std::size(current)));
+    if (wcscmp(current, next) != 0) {
+        SetWindowTextW(btn, next);
+        InvalidateRect(btn, nullptr, FALSE);
+    }
 }
 
 void UpdateGainLabel(HWND hwnd) {
@@ -844,6 +1096,8 @@ void BeginHotkeyCapture(HWND hwnd, HotkeyCaptureTarget target) {
     if (labelId != 0) {
         SetWindowTextW(GetDlgItem(hwnd, labelId), L"Current: Press key... (Esc=Cancel, Del=Clear)");
     }
+    InvalidateRect(GetDlgItem(hwnd, IDC_MUTE_HOTKEY_SET), nullptr, FALSE);
+    InvalidateRect(GetDlgItem(hwnd, IDC_MIC_INPUT_HOTKEY_SET), nullptr, FALSE);
     SetFocus(hwnd);
 }
 
@@ -1098,6 +1352,10 @@ void LoadSettings(HWND hwnd) {
     g_micInputMuteHotkeyVk = static_cast<UINT>(std::max(0, s.micInputMuteHotkeyVk));
     UpdateGainLabel(hwnd);
     UpdateHotkeyLabels(hwnd);
+    if (s.uiThemeMode != g_themeMode) {
+        g_themeMode = s.uiThemeMode;
+        ApplyTheme(hwnd);
+    }
     g_loadingUi = false;
 }
 
@@ -1134,6 +1392,7 @@ MicMixSettings CollectSettings(HWND hwnd) {
     s.muteHotkeyVk = static_cast<int>(g_muteHotkeyVk);
     s.micInputMuteHotkeyModifiers = static_cast<int>(g_micInputMuteHotkeyModifiers);
     s.micInputMuteHotkeyVk = static_cast<int>(g_micInputMuteHotkeyVk);
+    s.uiThemeMode = g_themeMode;
     return s;
 }
 
@@ -1228,35 +1487,45 @@ void ApplyControlTheme(HWND hwnd) {
         wchar_t className[32]{};
         GetClassNameW(child, className, static_cast<int>(std::size(className)));
         if (_wcsicmp(className, WC_COMBOBOXW) == 0) {
-            // Use modern native common-control rendering while staying in Win32.
-            // This is a low-risk visual refresh without changing control behavior.
-            SetWindowTheme(child, L"Explorer", nullptr);
+            // "DarkMode_CFD" gives the combobox frame and drop arrow a dark rendering on
+            // Windows 10 1809+; older systems silently fall back to the classic look.
+            SetWindowTheme(child, g_theme.dark ? L"DarkMode_CFD" : L"Explorer", nullptr);
+            COMBOBOXINFO cbi{};
+            cbi.cbSize = sizeof(cbi);
+            if (GetComboBoxInfo(child, &cbi) != FALSE && cbi.hwndList) {
+                SetWindowTheme(cbi.hwndList, g_theme.dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
+            }
         }
         if (_wcsicmp(className, TRACKBAR_CLASSW) == 0) {
             // Keep custom slider visuals without native focus frame around the control.
             SetWindowTheme(child, L"", L"");
         }
         if (_wcsicmp(className, WC_BUTTONW) == 0) {
-            const LONG_PTR style = GetWindowLongPtrW(child, GWL_STYLE);
-            const LONG_PTR type = (style & BS_TYPEMASK);
-            if (type == BS_PUSHBUTTON || type == BS_DEFPUSHBUTTON ||
-                type == BS_CHECKBOX || type == BS_AUTOCHECKBOX) {
-                SetWindowLongPtrW(child, GWL_STYLE, style | BS_FLAT);
-            }
-            const int childId = static_cast<int>(GetDlgCtrlID(child));
-            const bool ownerCheckbox = (type == BS_OWNERDRAW) && IsOwnerCheckboxControlId(childId);
-            if (type == BS_CHECKBOX || type == BS_AUTOCHECKBOX) {
-                // Force classic checkbox glyph rendering for a clear thin dark/light border.
-                SetWindowTheme(child, L"", L"");
-            } else if (ownerCheckbox) {
-                // Owner-drawn checkboxes should not get themed focus/hot borders.
-                SetWindowTheme(child, L"", L"");
-            } else {
-                SetWindowTheme(child, L"Explorer", nullptr);
-            }
+            // Every button is owner-drawn; strip visual styles so no themed hot/focus frame leaks through.
+            SetWindowTheme(child, L"", L"");
         }
         return TRUE;
     }, 0);
+}
+
+void ApplyTheme(HWND hwnd) {
+    SelectThemePalette(g_themeMode);
+    if (!hwnd) {
+        return;
+    }
+    ApplyWindowFrameTheme(hwnd);
+    ApplyControlTheme(hwnd);
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME | RDW_UPDATENOW);
+}
+
+void SetThemeMode(HWND hwnd, UiThemeMode mode) {
+    if (mode == g_themeMode) {
+        return;
+    }
+    g_themeMode = mode;
+    ApplyTheme(hwnd);
+    ApplyLiveSettings(hwnd, false);
 }
 
 void ApplyFonts(HWND hwnd) {
@@ -1291,15 +1560,122 @@ void ComputeLayout() {
     g_rcMix = { left, g_rcSource.bottom + gap, right, S(kClientHeightPx - kCardMarginPx) };
 }
 
-void DrawCard(HDC hdc, const RECT& rc) {
-    FillRect(hdc, &rc, g_brushCard);
-    HPEN pen = CreatePen(PS_SOLID, 1, g_theme.border);
-    HGDIOBJ oldPen = SelectObject(hdc, pen);
-    HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
-    Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
-    SelectObject(hdc, oldBrush);
-    SelectObject(hdc, oldPen);
-    DeleteObject(pen);
+Gdiplus::Color ToGdiColor(COLORREF c, BYTE alpha = 255) {
+    return Gdiplus::Color(alpha, GetRValue(c), GetGValue(c), GetBValue(c));
+}
+
+void AddRoundRectPath(Gdiplus::GraphicsPath& path, const Gdiplus::RectF& r, float radius) {
+    radius = std::min(radius, std::min(r.Width, r.Height) * 0.5f);
+    if (radius <= 0.5f) {
+        path.AddRectangle(r);
+        return;
+    }
+    const float d = radius * 2.0f;
+    path.AddArc(r.X, r.Y, d, d, 180.0f, 90.0f);
+    path.AddArc(r.X + r.Width - d, r.Y, d, d, 270.0f, 90.0f);
+    path.AddArc(r.X + r.Width - d, r.Y + r.Height - d, d, d, 0.0f, 90.0f);
+    path.AddArc(r.X, r.Y + r.Height - d, d, d, 90.0f, 90.0f);
+    path.CloseFigure();
+}
+
+struct ShapeStyle {
+    COLORREF fill = RGB(0, 0, 0);
+    bool hasFill = true;
+    COLORREF border = RGB(0, 0, 0);
+    bool hasBorder = false;
+    float borderWidth = 1.0f;
+};
+
+ShapeStyle Filled(COLORREF fill) {
+    ShapeStyle s;
+    s.fill = fill;
+    return s;
+}
+
+ShapeStyle FilledBordered(COLORREF fill, COLORREF border, float borderWidth = 1.0f) {
+    ShapeStyle s;
+    s.fill = fill;
+    s.border = border;
+    s.hasBorder = true;
+    s.borderWidth = borderWidth;
+    return s;
+}
+
+ShapeStyle Outline(COLORREF border, float borderWidth = 1.0f) {
+    ShapeStyle s;
+    s.hasFill = false;
+    s.border = border;
+    s.hasBorder = true;
+    s.borderWidth = borderWidth;
+    return s;
+}
+
+// Anti-aliased rounded rectangle via GDI+, with a plain GDI fallback when GDI+ is unavailable.
+void DrawRoundRect(HDC hdc, const RECT& rc, int radius, const ShapeStyle& style) {
+    if (rc.right <= rc.left || rc.bottom <= rc.top) {
+        return;
+    }
+    if (!g_gdiplusReady) {
+        HPEN pen = style.hasBorder ? CreatePen(PS_SOLID, std::max(1, static_cast<int>(style.borderWidth)), style.border) : nullptr;
+        HBRUSH brush = style.hasFill ? CreateSolidBrush(style.fill) : nullptr;
+        HGDIOBJ oldPen = SelectObject(hdc, pen ? static_cast<HGDIOBJ>(pen) : GetStockObject(NULL_PEN));
+        HGDIOBJ oldBrush = SelectObject(hdc, brush ? static_cast<HGDIOBJ>(brush) : GetStockObject(HOLLOW_BRUSH));
+        RoundRect(hdc, rc.left, rc.top, rc.right + (pen ? 0 : 1), rc.bottom + (pen ? 0 : 1), radius * 2, radius * 2);
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        if (brush) DeleteObject(brush);
+        if (pen) DeleteObject(pen);
+        return;
+    }
+    Gdiplus::Graphics g(hdc);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    const Gdiplus::RectF r(
+        static_cast<Gdiplus::REAL>(rc.left),
+        static_cast<Gdiplus::REAL>(rc.top),
+        static_cast<Gdiplus::REAL>(rc.right - rc.left),
+        static_cast<Gdiplus::REAL>(rc.bottom - rc.top));
+    if (style.hasFill) {
+        Gdiplus::GraphicsPath path;
+        AddRoundRectPath(path, r, static_cast<float>(radius));
+        Gdiplus::SolidBrush brush(ToGdiColor(style.fill));
+        g.FillPath(&brush, &path);
+    }
+    if (style.hasBorder) {
+        const float inset = style.borderWidth * 0.5f;
+        const Gdiplus::RectF br(r.X + inset, r.Y + inset, r.Width - style.borderWidth, r.Height - style.borderWidth);
+        Gdiplus::GraphicsPath path;
+        AddRoundRectPath(path, br, std::max(0.0f, static_cast<float>(radius) - inset));
+        Gdiplus::Pen pen(ToGdiColor(style.border), style.borderWidth);
+        g.DrawPath(&pen, &path);
+    }
+}
+
+void DrawEllipseAA(HDC hdc, const RECT& rc, const ShapeStyle& style) {
+    if (rc.right <= rc.left || rc.bottom <= rc.top) {
+        return;
+    }
+    if (!g_gdiplusReady) {
+        DrawRoundRect(hdc, rc, std::min(rc.right - rc.left, rc.bottom - rc.top) / 2, style);
+        return;
+    }
+    Gdiplus::Graphics g(hdc);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    const Gdiplus::RectF r(
+        static_cast<Gdiplus::REAL>(rc.left),
+        static_cast<Gdiplus::REAL>(rc.top),
+        static_cast<Gdiplus::REAL>(rc.right - rc.left),
+        static_cast<Gdiplus::REAL>(rc.bottom - rc.top));
+    if (style.hasFill) {
+        Gdiplus::SolidBrush brush(ToGdiColor(style.fill));
+        g.FillEllipse(&brush, r);
+    }
+    if (style.hasBorder) {
+        const float inset = style.borderWidth * 0.5f;
+        Gdiplus::Pen pen(ToGdiColor(style.border), style.borderWidth);
+        g.DrawEllipse(&pen, r.X + inset, r.Y + inset, r.Width - style.borderWidth, r.Height - style.borderWidth);
+    }
 }
 
 void FillSolidRect(HDC hdc, const RECT& rc, COLORREF color) {
@@ -1308,46 +1684,69 @@ void FillSolidRect(HDC hdc, const RECT& rc, COLORREF color) {
     DeleteObject(b);
 }
 
+void FillHorizontalGradient(HDC hdc, const RECT& rc, COLORREF from, COLORREF to) {
+    if (rc.right <= rc.left || rc.bottom <= rc.top) {
+        return;
+    }
+    if (!g_gdiplusReady) {
+        FillSolidRect(hdc, rc, from);
+        return;
+    }
+    Gdiplus::Graphics g(hdc);
+    const Gdiplus::Rect r(rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top);
+    Gdiplus::LinearGradientBrush brush(
+        Gdiplus::Rect(r.X - 1, r.Y, r.Width + 2, r.Height),
+        ToGdiColor(from),
+        ToGdiColor(to),
+        Gdiplus::LinearGradientModeHorizontal);
+    g.FillRectangle(&brush, r);
+}
+
+void DrawCard(HDC hdc, const RECT& rc) {
+    const int radius = S(12);
+    RECT shadow = rc;
+    OffsetRect(&shadow, 0, S(2));
+    DrawRoundRect(hdc, shadow, radius, Filled(g_theme.cardShadow));
+    DrawRoundRect(hdc, rc, radius, FilledBordered(g_theme.card, g_theme.border));
+}
+
+void DrawSectionHeading(HDC hdc, int x, int y, const wchar_t* text) {
+    const int barH = S(12);
+    RECT bar{ x - S(10), y + S(2), x - S(7), y + S(2) + barH };
+    DrawRoundRect(hdc, bar, S(2), Filled(g_theme.accent));
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, g_theme.muted);
+    HGDIOBJ oldFont = SelectObject(hdc, g_fontSection ? g_fontSection : g_fontSmall);
+    TextOutW(hdc, x, y, text, lstrlenW(text));
+    SelectObject(hdc, oldFont);
+}
+
 void DrawHeaderStatusBadge(HDC hdc) {
     if (g_rcHeaderBadge.right <= g_rcHeaderBadge.left || g_rcHeaderBadge.bottom <= g_rcHeaderBadge.top) {
         return;
     }
     const HeaderBadgeVisual visual = GetHeaderBadgeVisual(g_headerStatusBadgeState);
-    HPEN pen = CreatePen(PS_SOLID, 1, visual.border);
-    HBRUSH brush = CreateSolidBrush(visual.bg);
-    HGDIOBJ oldPen = SelectObject(hdc, pen);
-    HGDIOBJ oldBrush = SelectObject(hdc, brush);
-    RoundRect(hdc, g_rcHeaderBadge.left, g_rcHeaderBadge.top, g_rcHeaderBadge.right, g_rcHeaderBadge.bottom, S(10), S(10));
-    SelectObject(hdc, oldBrush);
-    SelectObject(hdc, oldPen);
-    DeleteObject(brush);
-    DeleteObject(pen);
+    const int h = g_rcHeaderBadge.bottom - g_rcHeaderBadge.top;
+    DrawRoundRect(hdc, g_rcHeaderBadge, h / 2, FilledBordered(visual.bg, visual.border));
 
     const int dotSize = S(6);
-    const int dotInsetX = S(8);
-    const int dotY = g_rcHeaderBadge.top + ((g_rcHeaderBadge.bottom - g_rcHeaderBadge.top - dotSize) / 2);
+    const int dotInsetX = S(9);
+    const int dotY = g_rcHeaderBadge.top + ((h - dotSize) / 2);
     RECT dotRc{
         g_rcHeaderBadge.left + dotInsetX,
         dotY,
         g_rcHeaderBadge.left + dotInsetX + dotSize,
         dotY + dotSize
     };
-    HPEN dotPen = CreatePen(PS_SOLID, 1, visual.dot);
-    HBRUSH dotBrush = CreateSolidBrush(visual.dot);
-    HGDIOBJ oldDotPen = SelectObject(hdc, dotPen);
-    HGDIOBJ oldDotBrush = SelectObject(hdc, dotBrush);
-    Ellipse(hdc, dotRc.left, dotRc.top, dotRc.right, dotRc.bottom);
-    SelectObject(hdc, oldDotBrush);
-    SelectObject(hdc, oldDotPen);
-    DeleteObject(dotBrush);
-    DeleteObject(dotPen);
+    DrawEllipseAA(hdc, dotRc, Filled(visual.dot));
 
     RECT textRc = g_rcHeaderBadge;
     textRc.left += S(12);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, visual.text);
-    SelectObject(hdc, g_fontSmall ? g_fontSmall : g_fontBody);
+    HGDIOBJ oldFont = SelectObject(hdc, g_fontSection ? g_fontSection : (g_fontSmall ? g_fontSmall : g_fontBody));
     DrawTextW(hdc, visual.label, -1, &textRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, oldFont);
 }
 
 void DrawLevelMeter(HDC hdc, const RECT& meterRect, bool active, float visualDb, float holdDb) {
@@ -1399,12 +1798,12 @@ void DrawLevelMeter(HDC hdc, const RECT& meterRect, bool active, float visualDb,
     RECT barRc = rc;
     barRc.top = std::min(rc.bottom - 1, scaleRc.bottom);
 
-    FillSolidRect(drawDc, scaleRc, RGB(244, 247, 252));
-    FillSolidRect(drawDc, barRc, RGB(235, 240, 246));
+    FillSolidRect(drawDc, rc, g_theme.card);
+    FillSolidRect(drawDc, barRc, g_theme.meterBarBg);
 
     const std::array<int, 7> tickDb = { -60, -36, -24, -18, -12, -6, 0 };
     SetBkMode(drawDc, TRANSPARENT);
-    SetTextColor(drawDc, RGB(96, 107, 122));
+    SetTextColor(drawDc, g_theme.meterTickText);
     HGDIOBJ oldFont = SelectObject(drawDc, g_fontTiny ? g_fontTiny : (g_fontHint ? g_fontHint : g_fontSmall));
     for (size_t i = 0; i < tickDb.size(); ++i) {
         const int db = tickDb[i];
@@ -1412,10 +1811,10 @@ void DrawLevelMeter(HDC hdc, const RECT& meterRect, bool active, float visualDb,
         x = std::clamp(x, left, right - 1);
 
         const COLORREF guideColor = (db == -24)
-            ? RGB(198, 176, 104)
+            ? g_theme.meterGuideWarn
             : (db == -12 || db == 0)
-                ? RGB(198, 130, 124)
-                : RGB(206, 214, 225);
+                ? g_theme.meterGuideHot
+                : g_theme.meterGuide;
         HPEN guidePen = CreatePen(PS_SOLID, 1, guideColor);
         HGDIOBJ oldGuidePen = SelectObject(drawDc, guidePen);
         MoveToEx(drawDc, x, barRc.top, nullptr);
@@ -1424,7 +1823,7 @@ void DrawLevelMeter(HDC hdc, const RECT& meterRect, bool active, float visualDb,
         DeleteObject(guidePen);
 
         RECT tickRc{ x, scaleRc.bottom - S(3), x + 1, scaleRc.bottom };
-        FillSolidRect(drawDc, tickRc, RGB(162, 171, 184));
+        FillSolidRect(drawDc, tickRc, g_theme.meterTick);
 
         wchar_t label[8]{};
         swprintf_s(label, L"%d", db);
@@ -1454,20 +1853,20 @@ void DrawLevelMeter(HDC hdc, const RECT& meterRect, bool active, float visualDb,
     if (active && levelPx > 0) {
         RECT seg = barRc;
         seg.right = barRc.left + std::min(levelPx, greenEnd);
-        if (seg.right > seg.left) FillSolidRect(drawDc, seg, RGB(54, 181, 78));
+        if (seg.right > seg.left) FillSolidRect(drawDc, seg, g_theme.meterGreen);
 
         if (levelPx > greenEnd) {
             seg.left = barRc.left + greenEnd;
             seg.right = barRc.left + std::min(levelPx, yellowEnd);
-            if (seg.right > seg.left) FillSolidRect(drawDc, seg, RGB(232, 191, 58));
+            if (seg.right > seg.left) FillSolidRect(drawDc, seg, g_theme.meterYellow);
         }
         if (levelPx > yellowEnd) {
             seg.left = barRc.left + yellowEnd;
             seg.right = barRc.left + levelPx;
-            if (seg.right > seg.left) FillSolidRect(drawDc, seg, RGB(214, 75, 63));
+            if (seg.right > seg.left) FillSolidRect(drawDc, seg, g_theme.meterRed);
         }
 
-        HPEN holdPen = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
+        HPEN holdPen = CreatePen(PS_SOLID, std::max(1, S(2)), g_theme.meterHold);
         HGDIOBJ oldPen = SelectObject(drawDc, holdPen);
         MoveToEx(drawDc, barRc.left + holdPx, barRc.top, nullptr);
         LineTo(drawDc, barRc.left + holdPx, barRc.bottom);
@@ -1475,10 +1874,10 @@ void DrawLevelMeter(HDC hdc, const RECT& meterRect, bool active, float visualDb,
         DeleteObject(holdPen);
     }
 
-    HPEN border = CreatePen(PS_SOLID, 1, RGB(184, 193, 207));
+    HPEN border = CreatePen(PS_SOLID, 1, g_theme.meterBorder);
     HGDIOBJ oldPen = SelectObject(drawDc, border);
     HGDIOBJ oldBrush = SelectObject(drawDc, GetStockObject(HOLLOW_BRUSH));
-    Rectangle(drawDc, rc.left, rc.top, rc.right, rc.bottom);
+    Rectangle(drawDc, barRc.left, barRc.top, barRc.right, barRc.bottom);
     SelectObject(drawDc, oldBrush);
     SelectObject(drawDc, oldPen);
     DeleteObject(border);
@@ -1503,6 +1902,10 @@ void DrawLevelMeter(HDC hdc, const RECT& meterRect, bool active, float visualDb,
 void EndHotkeyCapture(HWND hwnd, bool refreshLabels = true) {
     g_hotkeyCaptureTarget = HotkeyCaptureTarget::None;
     MicMixApp::Instance().SetGlobalHotkeyCaptureBlocked(false);
+    if (hwnd) {
+        InvalidateRect(GetDlgItem(hwnd, IDC_MUTE_HOTKEY_SET), nullptr, FALSE);
+        InvalidateRect(GetDlgItem(hwnd, IDC_MIC_INPUT_HOTKEY_SET), nullptr, FALSE);
+    }
     if (refreshLabels) {
         UpdateHotkeyLabels(hwnd);
     }
@@ -1521,25 +1924,32 @@ LRESULT DrawGainSliderCustom(const NMCUSTOMDRAW* cd) {
 
     const DWORD item = static_cast<DWORD>(cd->dwItemSpec);
     const RECT rc = cd->rc;
+    if (item == TBCD_TICS) {
+        // Modern flat look: no tick marks.
+        return CDRF_SKIPDEFAULT;
+    }
     if (item == TBCD_CHANNEL) {
-        RECT line = rc;
+        const int trackH = std::max(2, S(4));
         const int centerY = (rc.top + rc.bottom) / 2;
-        line.top = centerY;
-        line.bottom = centerY + 1;
-        FillSolidRect(cd->hdc, line, RGB(204, 212, 223));
+        RECT track{ rc.left, centerY - (trackH / 2), rc.right, centerY - (trackH / 2) + trackH };
+        DrawRoundRect(cd->hdc, track, trackH / 2, Filled(g_theme.sliderTrack));
+
+        RECT thumbRc{};
+        SendMessageW(cd->hdr.hwndFrom, TBM_GETTHUMBRECT, 0, reinterpret_cast<LPARAM>(&thumbRc));
+        RECT filled = track;
+        filled.right = std::clamp(static_cast<int>((thumbRc.left + thumbRc.right) / 2), static_cast<int>(track.left), static_cast<int>(track.right));
+        if (filled.right > filled.left) {
+            DrawRoundRect(cd->hdc, filled, trackH / 2, Filled(g_theme.accent));
+        }
         return CDRF_SKIPDEFAULT;
     }
     if (item == TBCD_THUMB) {
         RECT thumb = rc;
-        FillSolidRect(cd->hdc, thumb, RGB(245, 248, 252));
-        const COLORREF borderColor = GetSysColor(COLOR_BTNSHADOW);
-        HPEN border = CreatePen(PS_SOLID, 1, borderColor);
-        HGDIOBJ oldPen = SelectObject(cd->hdc, border);
-        HGDIOBJ oldBrush = SelectObject(cd->hdc, GetStockObject(HOLLOW_BRUSH));
-        Rectangle(cd->hdc, thumb.left, thumb.top, thumb.right, thumb.bottom);
-        SelectObject(cd->hdc, oldBrush);
-        SelectObject(cd->hdc, oldPen);
-        DeleteObject(border);
+        const bool hot = (cd->uItemState & CDIS_HOT) != 0;
+        const bool pressed = (cd->uItemState & CDIS_SELECTED) != 0;
+        const int w = thumb.right - thumb.left;
+        const COLORREF ring = pressed ? g_theme.accentPressed : (hot ? g_theme.accentHover : g_theme.accent);
+        DrawRoundRect(cd->hdc, thumb, w / 2, FilledBordered(g_theme.sliderThumb, ring, static_cast<float>(std::max(1, S(2)))));
         return CDRF_SKIPDEFAULT;
     }
     return CDRF_DODEFAULT;
@@ -1573,14 +1983,14 @@ void DrawClipStrip(HDC hdc, const RECT& rcStrip, float dangerUnit, bool clipRece
     }
 
     RECT rc = buffered ? RECT{ 0, 0, targetWidth, targetHeight } : rcStrip;
-    FillSolidRect(drawDc, rc, RGB(246, 249, 252));
+    FillSolidRect(drawDc, rc, g_theme.card);
 
     const int width = rc.right - rc.left;
     constexpr int kSegments = 18;
     const int segGap = std::max(1, S(1));
     const int litSegments = std::clamp(static_cast<int>(std::floor(dangerUnit * static_cast<float>(kSegments) + 0.5f)), 0, kSegments);
-    const COLORREF offColor = RGB(218, 225, 235);
-    const COLORREF clipColor = clipRecent ? RGB(226, 63, 51) : RGB(196, 72, 64);
+    const COLORREF offColor = g_theme.clipOff;
+    const COLORREF clipColor = g_theme.clipPulse;
 
     for (int i = 0; i < kSegments; ++i) {
         const int segLeft = rc.left + ((i * width) / kSegments);
@@ -1599,7 +2009,7 @@ void DrawClipStrip(HDC hdc, const RECT& rcStrip, float dangerUnit, bool clipRece
         FillSolidRect(drawDc, seg, color);
     }
 
-    HPEN border = CreatePen(PS_SOLID, 1, clipRecent ? RGB(208, 72, 60) : RGB(188, 197, 210));
+    HPEN border = CreatePen(PS_SOLID, 1, clipRecent ? g_theme.clipPulse : g_theme.clipBorder);
     HGDIOBJ oldPen = SelectObject(drawDc, border);
     HGDIOBJ oldBrush = SelectObject(drawDc, GetStockObject(HOLLOW_BRUSH));
     Rectangle(drawDc, rc.left, rc.top, rc.right, rc.bottom);
@@ -1608,7 +2018,7 @@ void DrawClipStrip(HDC hdc, const RECT& rcStrip, float dangerUnit, bool clipRece
     DeleteObject(border);
 
     SetBkMode(drawDc, TRANSPARENT);
-    SetTextColor(drawDc, clipRecent ? RGB(132, 24, 24) : RGB(112, 120, 132));
+    SetTextColor(drawDc, clipRecent ? g_theme.clipTextHot : g_theme.clipText);
     SelectObject(drawDc, g_fontTiny ? g_fontTiny : (g_fontHint ? g_fontHint : g_fontSmall));
     RECT labelRc{ rc.left + S(5), rc.top, rc.right - S(52), rc.bottom };
     DrawTextW(drawDc, L"Clip Meter", -1, &labelRc, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
@@ -1645,13 +2055,7 @@ void DrawClipStrip(HDC hdc, const RECT& rcStrip, float dangerUnit, bool clipRece
     }
 }
 
-void DrawSourceComboItem(const DRAWITEMSTRUCT* dis) {
-    if (!dis || dis->itemID == static_cast<UINT>(-1)) {
-        return;
-    }
-    const bool selected = (dis->itemState & ODS_SELECTED) != 0;
-    const bool disabled = (dis->itemState & ODS_DISABLED) != 0;
-
+std::wstring GetComboItemText(const DRAWITEMSTRUCT* dis) {
     std::wstring itemText;
     const LRESULT textLen = SendMessageW(dis->hwndItem, CB_GETLBTEXTLEN, dis->itemID, 0);
     if (textLen > 0 && textLen != CB_ERR) {
@@ -1667,13 +2071,32 @@ void DrawSourceComboItem(const DRAWITEMSTRUCT* dis) {
             itemText.clear();
         }
     }
+    return itemText;
+}
+
+// Returns true when the item is highlighted inside the open drop-down list.
+bool PaintComboItemBackground(const DRAWITEMSTRUCT* dis) {
+    const bool selected = (dis->itemState & ODS_SELECTED) != 0;
+    const bool editField = (dis->itemState & ODS_COMBOBOXEDIT) != 0;
+    const bool highlight = selected && !editField;
+    FillSolidRect(dis->hDC, dis->rcItem, g_theme.inputBg);
+    if (highlight) {
+        RECT pill = dis->rcItem;
+        InflateRect(&pill, -S(3), -S(1));
+        DrawRoundRect(dis->hDC, pill, S(5), Filled(g_theme.selectionBg));
+    }
+    return highlight;
+}
+
+void DrawSourceComboItem(const DRAWITEMSTRUCT* dis) {
+    if (!dis || dis->itemID == static_cast<UINT>(-1)) {
+        return;
+    }
+    const bool disabled = (dis->itemState & ODS_DISABLED) != 0;
+    const std::wstring itemText = GetComboItemText(dis);
 
     RECT rc = dis->rcItem;
-    if (selected) {
-        FillSolidRect(dis->hDC, rc, RGB(218, 234, 255));
-    } else {
-        FillSolidRect(dis->hDC, rc, RGB(255, 255, 255));
-    }
+    const bool highlight = PaintComboItemBackground(dis);
 
     const LRESULT itemData = SendMessageW(dis->hwndItem, CB_GETITEMDATA, dis->itemID, 0);
     const bool isSelectableSource = !(itemData < 0 || itemData == CB_ERR || static_cast<size_t>(itemData) >= g_sourceChoices.size());
@@ -1702,31 +2125,51 @@ void DrawSourceComboItem(const DRAWITEMSTRUCT* dis) {
     }
 
     SetBkMode(dis->hDC, TRANSPARENT);
+    HGDIOBJ font = g_fontBody ? static_cast<HGDIOBJ>(g_fontBody) : GetStockObject(DEFAULT_GUI_FONT);
     if (disabled) {
-        SetTextColor(dis->hDC, RGB(150, 156, 166));
+        SetTextColor(dis->hDC, g_theme.disabledText);
     } else if (itemData == kSourceItemHeader) {
-        SetTextColor(dis->hDC, RGB(104, 112, 124));
+        SetTextColor(dis->hDC, g_theme.comboHeaderText);
+        if (g_fontSection) font = g_fontSection;
     } else if (itemData == kSourceItemDivider) {
-        SetTextColor(dis->hDC, RGB(184, 190, 200));
+        SetTextColor(dis->hDC, g_theme.comboDividerText);
     } else if (itemData == kSourceItemPlaceholder) {
-        SetTextColor(dis->hDC, RGB(132, 138, 148));
+        SetTextColor(dis->hDC, g_theme.comboPlaceholderText);
     } else {
-        SetTextColor(dis->hDC, RGB(32, 36, 44));
+        SetTextColor(dis->hDC, highlight ? g_theme.selectionText : g_theme.text);
     }
-    SelectObject(dis->hDC, g_fontBody ? g_fontBody : GetStockObject(DEFAULT_GUI_FONT));
+    HGDIOBJ oldFont = SelectObject(dis->hDC, font);
 
     RECT textRc = rc;
     textRc.left = textLeft;
-    DrawTextW(dis->hDC, itemText.c_str(), -1, &textRc, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
-
-    if ((dis->itemState & ODS_FOCUS) != 0) {
-        RECT focus = rc;
-        focus.left += S(2);
-        focus.right -= S(2);
-        DrawFocusRect(dis->hDC, &focus);
-    }
+    textRc.right -= S(6);
+    DrawTextW(dis->hDC, itemText.c_str(), -1, &textRc, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(dis->hDC, oldFont);
 }
 
+void DrawPlainComboItem(const DRAWITEMSTRUCT* dis) {
+    if (!dis || dis->itemID == static_cast<UINT>(-1)) {
+        return;
+    }
+    const bool disabled = (dis->itemState & ODS_DISABLED) != 0;
+    const std::wstring itemText = GetComboItemText(dis);
+    const bool highlight = PaintComboItemBackground(dis);
+
+    SetBkMode(dis->hDC, TRANSPARENT);
+    SetTextColor(dis->hDC, disabled ? g_theme.disabledText : (highlight ? g_theme.selectionText : g_theme.text));
+    HGDIOBJ oldFont = SelectObject(dis->hDC, g_fontBody ? static_cast<HGDIOBJ>(g_fontBody) : GetStockObject(DEFAULT_GUI_FONT));
+    RECT textRc = dis->rcItem;
+    textRc.left += S(10);
+    textRc.right -= S(6);
+    DrawTextW(dis->hDC, itemText.c_str(), -1, &textRc, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(dis->hDC, oldFont);
+}
+
+bool ShouldDrawFocusRing(const DRAWITEMSTRUCT* dis) {
+    return (dis->itemState & ODS_FOCUS) != 0 && (dis->itemState & ODS_NOFOCUSRECT) == 0;
+}
+
+// Owner-drawn on/off switch (replaces the classic checkbox glyph).
 void DrawOwnerCheckbox(const DRAWITEMSTRUCT* dis) {
     if (!dis) {
         return;
@@ -1736,54 +2179,383 @@ void DrawOwnerCheckbox(const DRAWITEMSTRUCT* dis) {
 
     const bool disabled = (dis->itemState & ODS_DISABLED) != 0;
     const bool checked = GetOwnerCheckboxValue(dis->CtlID);
+    const bool hover = !disabled && dis->hwndItem == g_hoverControl;
 
-    const int boxSize = S(15);
-    RECT box{
+    const int trackW = S(36);
+    const int trackH = S(20);
+    RECT track{
         rc.left + S(2),
-        rc.top + ((rc.bottom - rc.top - boxSize) / 2),
-        rc.left + S(2) + boxSize,
-        rc.top + ((rc.bottom - rc.top - boxSize) / 2) + boxSize
+        rc.top + ((rc.bottom - rc.top - trackH) / 2),
+        rc.left + S(2) + trackW,
+        rc.top + ((rc.bottom - rc.top - trackH) / 2) + trackH
     };
 
-    FillSolidRect(dis->hDC, box, RGB(252, 253, 255));
-
-    // Uniform thin 1px border.
-    const COLORREF borderColor = disabled ? GetSysColor(COLOR_GRAYTEXT) : GetSysColor(COLOR_BTNSHADOW);
-    HPEN border = CreatePen(PS_SOLID, 1, borderColor);
-    HGDIOBJ oldPen = SelectObject(dis->hDC, border);
-    HGDIOBJ oldBrush = SelectObject(dis->hDC, GetStockObject(HOLLOW_BRUSH));
-    Rectangle(dis->hDC, box.left, box.top, box.right, box.bottom);
-    SelectObject(dis->hDC, oldBrush);
-    SelectObject(dis->hDC, oldPen);
-    DeleteObject(border);
-
-    if (checked) {
-        HPEN markPen = CreatePen(PS_SOLID, std::max(1, S(2)), disabled ? RGB(130, 136, 148) : RGB(54, 68, 92));
-        HGDIOBJ oldMarkPen = SelectObject(dis->hDC, markPen);
-        const int pad = S(3);
-        MoveToEx(dis->hDC, box.left + pad, box.top + pad, nullptr);
-        LineTo(dis->hDC, box.right - pad - 1, box.bottom - pad - 1);
-        MoveToEx(dis->hDC, box.right - pad - 1, box.top + pad, nullptr);
-        LineTo(dis->hDC, box.left + pad, box.bottom - pad - 1);
-        SelectObject(dis->hDC, oldMarkPen);
-        DeleteObject(markPen);
+    COLORREF trackColor = checked
+        ? (hover ? g_theme.accentHover : g_theme.accent)
+        : (hover ? g_theme.toggleOffHover : g_theme.toggleOff);
+    COLORREF knobColor = g_theme.toggleKnob;
+    if (disabled) {
+        trackColor = MixColor(trackColor, g_theme.card, 0.55f);
+        knobColor = MixColor(knobColor, g_theme.card, 0.35f);
     }
+    DrawRoundRect(dis->hDC, track, trackH / 2, Filled(trackColor));
+    if (ShouldDrawFocusRing(dis)) {
+        RECT ring = track;
+        InflateRect(&ring, S(2), S(2));
+        DrawRoundRect(dis->hDC, ring, (trackH / 2) + S(2), Outline(g_theme.accent, static_cast<float>(std::max(1, S(1)))));
+    }
+
+    const int knobInset = S(3);
+    const int knobSize = trackH - (knobInset * 2);
+    const int knobLeft = checked ? (track.right - knobInset - knobSize) : (track.left + knobInset);
+    RECT knob{ knobLeft, track.top + knobInset, knobLeft + knobSize, track.top + knobInset + knobSize };
+    DrawEllipseAA(dis->hDC, knob, Filled(knobColor));
 
     wchar_t text[256]{};
     GetWindowTextW(dis->hwndItem, text, static_cast<int>(std::size(text)));
     RECT textRc = rc;
-    textRc.left = box.right + S(8);
+    textRc.left = track.right + S(10);
     SetBkMode(dis->hDC, TRANSPARENT);
-    SetTextColor(dis->hDC, disabled ? RGB(144, 150, 162) : g_theme.text);
-    SelectObject(dis->hDC, g_fontControlLarge ? g_fontControlLarge : g_fontBody);
-    DrawTextW(dis->hDC, text, -1, &textRc, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+    SetTextColor(dis->hDC, disabled ? g_theme.disabledText : g_theme.text);
+    HGDIOBJ oldFont = SelectObject(dis->hDC, g_fontControlLarge ? g_fontControlLarge : g_fontBody);
+    DrawTextW(dis->hDC, text, -1, &textRc, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(dis->hDC, oldFont);
+}
 
+enum class ButtonKind {
+    Primary,
+    Secondary,
+    Active,
+};
+
+ButtonKind ResolveButtonKind(int id) {
+    if (id == IDC_START) {
+        return ButtonKind::Primary;
+    }
+    if (id == IDC_MONITOR && MicMixApp::Instance().IsMonitorEnabled()) {
+        return ButtonKind::Active;
+    }
+    if ((id == IDC_MUTE_HOTKEY_SET && g_hotkeyCaptureTarget == HotkeyCaptureTarget::MusicMute) ||
+        (id == IDC_MIC_INPUT_HOTKEY_SET && g_hotkeyCaptureTarget == HotkeyCaptureTarget::MicInputMute)) {
+        return ButtonKind::Active;
+    }
+    return ButtonKind::Secondary;
+}
+
+void DrawPushButton(const DRAWITEMSTRUCT* dis) {
+    if (!dis) {
+        return;
+    }
+    RECT rc = dis->rcItem;
+    FillSolidRect(dis->hDC, rc, g_theme.card);
+
+    const bool disabled = (dis->itemState & ODS_DISABLED) != 0;
+    const bool pressed = (dis->itemState & ODS_SELECTED) != 0;
+    const bool hover = !disabled && dis->hwndItem == g_hoverControl;
+    const ButtonKind kind = ResolveButtonKind(static_cast<int>(dis->CtlID));
+    const int radius = S(8);
+
+    COLORREF fill = g_theme.buttonBg;
+    COLORREF border = g_theme.buttonBorder;
+    COLORREF textColor = g_theme.buttonText;
+    bool hasBorder = true;
+    switch (kind) {
+    case ButtonKind::Primary:
+        fill = pressed ? g_theme.accentPressed : (hover ? g_theme.accentHover : g_theme.accent);
+        textColor = g_theme.accentText;
+        hasBorder = false;
+        break;
+    case ButtonKind::Active:
+        fill = pressed ? MixColor(g_theme.accentSoft, g_theme.accent, 0.25f)
+                       : (hover ? MixColor(g_theme.accentSoft, g_theme.accent, 0.12f) : g_theme.accentSoft);
+        border = g_theme.accent;
+        textColor = g_theme.dark ? g_theme.accentHover : g_theme.accent;
+        break;
+    case ButtonKind::Secondary:
+    default:
+        fill = pressed ? g_theme.buttonPressed : (hover ? g_theme.buttonHover : g_theme.buttonBg);
+        border = hover ? MixColor(g_theme.buttonBorder, g_theme.accent, 0.35f) : g_theme.buttonBorder;
+        break;
+    }
+    if (disabled) {
+        fill = g_theme.buttonDisabledBg;
+        border = g_theme.border;
+        textColor = g_theme.disabledText;
+        hasBorder = true;
+    }
+
+    DrawRoundRect(dis->hDC, rc, radius, hasBorder ? FilledBordered(fill, border) : Filled(fill));
+    if (ShouldDrawFocusRing(dis)) {
+        RECT ring = rc;
+        InflateRect(&ring, -S(2), -S(2));
+        DrawRoundRect(dis->hDC, ring, radius - S(2), Outline(kind == ButtonKind::Primary ? g_theme.accentText : g_theme.accent, static_cast<float>(std::max(1, S(1)))));
+    }
+
+    wchar_t text[128]{};
+    GetWindowTextW(dis->hwndItem, text, static_cast<int>(std::size(text)));
+    RECT textRc = rc;
+    if (pressed) {
+        OffsetRect(&textRc, 0, S(1));
+    }
+    SetBkMode(dis->hDC, TRANSPARENT);
+    SetTextColor(dis->hDC, textColor);
+    HGDIOBJ oldFont = SelectObject(dis->hDC, g_fontButton ? g_fontButton : g_fontBody);
+    DrawTextW(dis->hDC, text, -1, &textRc, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(dis->hDC, oldFont);
+}
+
+// One segment of the System / Light / Dark selector. Each segment paints the part of the
+// shared container that lies inside its own window, so the three buttons read as one control.
+void DrawThemeSegment(HWND parent, const DRAWITEMSTRUCT* dis) {
+    if (!dis) {
+        return;
+    }
+    RECT rc = dis->rcItem;
+    FillSolidRect(dis->hDC, rc, g_theme.card);
+
+    RECT ctlRc{};
+    GetWindowRect(dis->hwndItem, &ctlRc);
+    MapWindowPoints(nullptr, parent, reinterpret_cast<LPPOINT>(&ctlRc), 2);
+    RECT container = g_rcThemeSegment;
+    OffsetRect(&container, -ctlRc.left, -ctlRc.top);
+    DrawRoundRect(dis->hDC, container, S(9), FilledBordered(g_theme.buttonBg, g_theme.buttonBorder));
+
+    const int id = static_cast<int>(dis->CtlID);
+    const bool selected = ThemeModeForControlId(id) == g_themeMode;
+    const bool hover = dis->hwndItem == g_hoverControl;
+    RECT pill = rc;
+    InflateRect(&pill, -S(3), -S(3));
+    COLORREF textColor = g_theme.muted;
+    if (selected) {
+        DrawRoundRect(dis->hDC, pill, S(6), Filled(g_theme.accent));
+        textColor = g_theme.accentText;
+    } else if (hover) {
+        DrawRoundRect(dis->hDC, pill, S(6), Filled(g_theme.buttonHover));
+        textColor = g_theme.text;
+    }
+    if (ShouldDrawFocusRing(dis)) {
+        DrawRoundRect(dis->hDC, pill, S(6), Outline(selected ? g_theme.accentText : g_theme.accent, static_cast<float>(std::max(1, S(1)))));
+    }
+
+    wchar_t text[32]{};
+    GetWindowTextW(dis->hwndItem, text, static_cast<int>(std::size(text)));
+    SetBkMode(dis->hDC, TRANSPARENT);
+    SetTextColor(dis->hDC, textColor);
+    HGDIOBJ oldFont = SelectObject(dis->hDC, g_fontButton ? g_fontButton : g_fontBody);
+    DrawTextW(dis->hDC, text, -1, &rc, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+    SelectObject(dis->hDC, oldFont);
+}
+
+// Hover tracking for owner-drawn buttons. Also maps double clicks to plain clicks so quick
+// repeated toggling is never swallowed (owner-drawn buttons report BN_DOUBLECLICKED otherwise).
+LRESULT CALLBACK ButtonHoverSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR subclassId, DWORD_PTR) {
+    switch (msg) {
+    case WM_MOUSEMOVE:
+        if (g_hoverControl != hwnd) {
+            HWND previous = g_hoverControl;
+            g_hoverControl = hwnd;
+            if (previous && IsWindow(previous)) {
+                InvalidateRect(previous, nullptr, FALSE);
+            }
+            InvalidateRect(hwnd, nullptr, FALSE);
+            TRACKMOUSEEVENT tme{};
+            tme.cbSize = sizeof(tme);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+        }
+        break;
+    case WM_MOUSELEAVE:
+        if (g_hoverControl == hwnd) {
+            g_hoverControl = nullptr;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        break;
+    case WM_LBUTTONDBLCLK:
+        msg = WM_LBUTTONDOWN;
+        break;
+    case WM_NCDESTROY:
+        if (g_hoverControl == hwnd) {
+            g_hoverControl = nullptr;
+        }
+        RemoveWindowSubclass(hwnd, ButtonHoverSubclassProc, subclassId);
+        break;
+    default:
+        break;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void DrawComboChevron(HDC hdc, const RECT& area, COLORREF color) {
+    const int cx = (area.left + area.right) / 2;
+    const int cy = (area.top + area.bottom) / 2;
+    const int w = S(4);
+    const int h = S(2);
+    if (!g_gdiplusReady) {
+        HPEN pen = CreatePen(PS_SOLID, std::max(1, S(2) - 1), color);
+        HGDIOBJ oldPen = SelectObject(hdc, pen);
+        MoveToEx(hdc, cx - w, cy - h, nullptr);
+        LineTo(hdc, cx, cy + h);
+        LineTo(hdc, cx + w + 1, cy - h - 1);
+        SelectObject(hdc, oldPen);
+        DeleteObject(pen);
+        return;
+    }
+    Gdiplus::Graphics g(hdc);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    Gdiplus::Pen pen(ToGdiColor(color), static_cast<Gdiplus::REAL>(std::max(1.0f, static_cast<float>(S(3)) * 0.5f)));
+    pen.SetStartCap(Gdiplus::LineCapRound);
+    pen.SetEndCap(Gdiplus::LineCapRound);
+    pen.SetLineJoin(Gdiplus::LineJoinRound);
+    const Gdiplus::PointF pts[3] = {
+        Gdiplus::PointF(static_cast<Gdiplus::REAL>(cx - w), static_cast<Gdiplus::REAL>(cy - h)),
+        Gdiplus::PointF(static_cast<Gdiplus::REAL>(cx), static_cast<Gdiplus::REAL>(cy + h)),
+        Gdiplus::PointF(static_cast<Gdiplus::REAL>(cx + w), static_cast<Gdiplus::REAL>(cy - h)),
+    };
+    g.DrawLines(&pen, pts, 3);
+}
+
+// Fully custom-painted combobox field (frame, current item and chevron). Native themed
+// rendering cannot be made dark reliably on every Windows version, so we own every pixel.
+void PaintComboField(HWND combo, HDC hdc) {
+    RECT client{};
+    GetClientRect(combo, &client);
+    const int w = client.right - client.left;
+    const int h = client.bottom - client.top;
+    if (w <= 0 || h <= 0) {
+        return;
+    }
+    HDC memDc = CreateCompatibleDC(hdc);
+    HBITMAP memBmp = memDc ? CreateCompatibleBitmap(hdc, w, h) : nullptr;
+    HDC drawDc = hdc;
+    HGDIOBJ oldBmp = nullptr;
+    if (memDc && memBmp) {
+        oldBmp = SelectObject(memDc, memBmp);
+        drawDc = memDc;
+    }
+
+    const bool enabled = IsWindowEnabled(combo) != FALSE;
+    const bool focused = GetFocus() == combo;
+    const bool dropped = SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0) != FALSE;
+    const bool hover = enabled && g_hoverControl == combo;
+
+    FillSolidRect(drawDc, client, g_theme.card);
+    COLORREF border = g_theme.buttonBorder;
+    if (focused || dropped) {
+        border = g_theme.accent;
+    } else if (hover) {
+        border = MixColor(g_theme.buttonBorder, g_theme.accent, 0.45f);
+    }
+    DrawRoundRect(drawDc, client, S(7), FilledBordered(enabled ? g_theme.inputBg : g_theme.buttonDisabledBg, border,
+                                                       static_cast<float>((focused || dropped) ? std::max(1, S(2) - 1) : 1)));
+
+    const int arrowW = S(28);
+    RECT arrowRc{ client.right - arrowW, client.top, client.right, client.bottom };
+    DrawComboChevron(drawDc, arrowRc, enabled ? g_theme.muted : g_theme.disabledText);
+
+    const int sel = static_cast<int>(SendMessageW(combo, CB_GETCURSEL, 0, 0));
+    if (sel >= 0) {
+        DRAWITEMSTRUCT dis{};
+        dis.CtlType = ODT_COMBOBOX;
+        dis.CtlID = static_cast<UINT>(GetDlgCtrlID(combo));
+        dis.itemID = static_cast<UINT>(sel);
+        dis.itemAction = ODA_DRAWENTIRE;
+        dis.itemState = ODS_COMBOBOXEDIT | (enabled ? 0U : static_cast<UINT>(ODS_DISABLED));
+        dis.hwndItem = combo;
+        dis.hDC = drawDc;
+        dis.rcItem = { client.left + S(2), client.top + S(2), arrowRc.left, client.bottom - S(2) };
+        dis.itemData = static_cast<ULONG_PTR>(SendMessageW(combo, CB_GETITEMDATA, static_cast<WPARAM>(sel), 0));
+        if (dis.CtlID == IDC_SOURCE) {
+            DrawSourceComboItem(&dis);
+        } else {
+            DrawPlainComboItem(&dis);
+        }
+    }
+
+    if (drawDc != hdc) {
+        BitBlt(hdc, 0, 0, w, h, memDc, 0, 0, SRCCOPY);
+        SelectObject(memDc, oldBmp);
+    }
+    if (memBmp) DeleteObject(memBmp);
+    if (memDc) DeleteDC(memDc);
+}
+
+LRESULT CALLBACK ComboSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR subclassId, DWORD_PTR) {
+    switch (msg) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps{};
+        HDC hdc = BeginPaint(hwnd, &ps);
+        PaintComboField(hwnd, hdc);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_PRINTCLIENT:
+        PaintComboField(hwnd, reinterpret_cast<HDC>(wParam));
+        return 0;
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_SETFOCUS:
+    case WM_KILLFOCUS:
+    case WM_ENABLE:
+    case CB_SETCURSEL: {
+        const LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return result;
+    }
+    case WM_MOUSEMOVE:
+        if (g_hoverControl != hwnd) {
+            HWND previous = g_hoverControl;
+            g_hoverControl = hwnd;
+            if (previous && IsWindow(previous)) {
+                InvalidateRect(previous, nullptr, FALSE);
+            }
+            InvalidateRect(hwnd, nullptr, FALSE);
+            TRACKMOUSEEVENT tme{};
+            tme.cbSize = sizeof(tme);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+        }
+        break;
+    case WM_MOUSELEAVE:
+        if (g_hoverControl == hwnd) {
+            g_hoverControl = nullptr;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        break;
+    case WM_NCDESTROY:
+        if (g_hoverControl == hwnd) {
+            g_hoverControl = nullptr;
+        }
+        RemoveWindowSubclass(hwnd, ComboSubclassProc, subclassId);
+        break;
+    default:
+        break;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+void InstallButtonHoverTracking(HWND hwnd) {
+    EnumChildWindows(hwnd, [](HWND child, LPARAM) -> BOOL {
+        wchar_t className[32]{};
+        GetClassNameW(child, className, static_cast<int>(std::size(className)));
+        if (_wcsicmp(className, WC_BUTTONW) == 0) {
+            SetWindowSubclass(child, ButtonHoverSubclassProc, 1, 0);
+        }
+        if (_wcsicmp(className, WC_COMBOBOXW) == 0) {
+            SetWindowSubclass(child, ComboSubclassProc, 2, 0);
+        }
+        return TRUE;
+    }, 0);
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
         g_dpi = GetDpiForWindow(hwnd);
+        g_themeMode = MicMixApp::Instance().GetSettings().uiThemeMode;
+        g_hoverControl = nullptr;
+        SelectThemePalette(g_themeMode);
         EnsureUiResources();
         ComputeLayout();
         g_hotkeyRefreshTick = 0;
@@ -1823,12 +2595,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         const int statusTextX = fieldX + meterW + S(4);
         const int statusTextW = contentRight - statusTextX;
         const int valueTextX = fieldX + gainSliderW;
-        const int forceTxToggleW = S(240);
+        const int forceTxToggleW = S(270);
         const int muteToggleW = S(156);
         const int muteToggleGap = S(10);
         const int muteMusicToggleX = fieldX + muteToggleW + muteToggleGap;
         const int hintTopOffset = S(38);
-        const int headerMetaW = S(300);
+        const int headerMetaW = S(220);
         const int headerMetaX = contentRight - headerMetaW;
         const int headerBadgeH = S(22);
         const int titleX = contentLeft;
@@ -1851,7 +2623,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             SelectObject(measureDc, oldFont);
             ReleaseDC(hwnd, measureDc);
         }
-        const int headerBadgeX = titleX + titleW + S(2);
+        const int headerBadgeX = titleX + titleW + S(10);
         const int headerBadgeY = titleY + ((titleH - headerBadgeH) / 2) - S(1);
         const int statusX = contentLeft;
         const int statusY = S(704);
@@ -1859,28 +2631,36 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         const int statusH = S(44);
         g_rcHeaderBadge = { headerBadgeX, headerBadgeY, headerBadgeX + headerBadgeW, headerBadgeY + headerBadgeH };
         g_rcStatus = { statusX, statusY, statusX + statusW, statusY + statusH };
+        const int themeSegW = S(70);
+        const int themeSegH = S(30);
+        const int themeSegY = S(169);
+        const int themeSegX = contentRight - (themeSegW * 3);
+        g_rcThemeSegment = { themeSegX, themeSegY, themeSegX + (themeSegW * 3), themeSegY + themeSegH };
 
         CreateWindowW(L"STATIC", L"MicMix", WS_CHILD | WS_VISIBLE, titleX, titleY, titleW, titleH, hwnd, reinterpret_cast<HMENU>(IDC_TITLE), nullptr, nullptr);
         CreateWindowW(L"STATIC", L"Configure MicMix and route one audio source to your mic output", WS_CHILD | WS_VISIBLE, contentLeft, S(43), headerMetaX - contentLeft - S(8), S(24), hwnd, reinterpret_cast<HMENU>(IDC_SUBTITLE), nullptr, nullptr);
         CreateWindowW(L"STATIC", versionText.c_str(), WS_CHILD | WS_VISIBLE | SS_RIGHT, headerMetaX, S(18), headerMetaW, S(18), hwnd, reinterpret_cast<HMENU>(IDC_VERSION), nullptr, nullptr);
         CreateWindowW(L"STATIC", L"github.com/dabinuss/MicMix", WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_NOTIFY, headerMetaX, S(36), headerMetaW, S(18), hwnd, reinterpret_cast<HMENU>(IDC_REPO_LINK), nullptr, nullptr);
 
-        CreateWindowW(L"BUTTON", L"Enable MicMix", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, contentLeft, S(108), actionButtonW, S(34), hwnd, reinterpret_cast<HMENU>(IDC_START), nullptr, nullptr);
-        CreateWindowW(L"BUTTON", L"Disable MicMix", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, contentLeft + actionButtonW + controlGap, S(108), actionButtonW, S(34), hwnd, reinterpret_cast<HMENU>(IDC_STOP), nullptr, nullptr);
-        CreateWindowW(L"BUTTON", L"Restart Source", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, contentLeft + (actionButtonW + controlGap) * 2, S(108), actionButtonW, S(34), hwnd, reinterpret_cast<HMENU>(IDC_SAVE), nullptr, nullptr);
-        CreateWindowW(L"BUTTON", L"Monitor Mix: Off", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, contentLeft + (actionButtonW + controlGap) * 3, S(108), monitorButtonW, S(34), hwnd, reinterpret_cast<HMENU>(IDC_MONITOR), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"Enable MicMix", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, contentLeft, S(108), actionButtonW, S(34), hwnd, reinterpret_cast<HMENU>(IDC_START), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"Disable MicMix", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, contentLeft + actionButtonW + controlGap, S(108), actionButtonW, S(34), hwnd, reinterpret_cast<HMENU>(IDC_STOP), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"Restart Source", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, contentLeft + (actionButtonW + controlGap) * 2, S(108), actionButtonW, S(34), hwnd, reinterpret_cast<HMENU>(IDC_SAVE), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"Monitor Mix: Off", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, contentLeft + (actionButtonW + controlGap) * 3, S(108), monitorButtonW, S(34), hwnd, reinterpret_cast<HMENU>(IDC_MONITOR), nullptr, nullptr);
         CreateWindowW(L"STATIC", L"Only while connected", WS_CHILD | WS_VISIBLE, contentLeft + (actionButtonW + controlGap) * 3, S(108) + hintTopOffset, S(162), S(18), hwnd, reinterpret_cast<HMENU>(IDC_MONITOR_HINT), nullptr, nullptr);
         CreateWindowW(L"BUTTON", L"Auto-enable when TeamSpeak starts", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, contentLeft, S(170), S(320), S(28), hwnd, reinterpret_cast<HMENU>(IDC_AUTOSTART), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"System", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, themeSegX, themeSegY, themeSegW, themeSegH, hwnd, reinterpret_cast<HMENU>(IDC_THEME_SYSTEM), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"Light", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, themeSegX + themeSegW, themeSegY, themeSegW, themeSegH, hwnd, reinterpret_cast<HMENU>(IDC_THEME_LIGHT), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"Dark", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_TABSTOP, themeSegX + (themeSegW * 2), themeSegY, themeSegW, themeSegH, hwnd, reinterpret_cast<HMENU>(IDC_THEME_DARK), nullptr, nullptr);
 
         CreateWindowW(L"STATIC", L"Audio Source", WS_CHILD | WS_VISIBLE, labelX, S(252), S(130), S(24), hwnd, nullptr, nullptr, nullptr);
         HWND source = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, fieldX, S(248), sourceW, S(360), hwnd, reinterpret_cast<HMENU>(IDC_SOURCE), nullptr, nullptr);
         SendMessageW(source, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), S(24));
         SendMessageW(source, CB_SETITEMHEIGHT, 0, S(22));
         SendMessageW(source, CB_SETMINVISIBLE, 18, 0);
-        CreateWindowW(L"BUTTON", L"Refresh", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, fieldX + sourceW + controlGap, S(248), refreshButtonW, S(30), hwnd, reinterpret_cast<HMENU>(IDC_RESCAN), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"Refresh", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, fieldX + sourceW + controlGap, S(248), refreshButtonW, S(30), hwnd, reinterpret_cast<HMENU>(IDC_RESCAN), nullptr, nullptr);
 
         CreateWindowW(L"STATIC", L"Audio Output (Mic)", WS_CHILD | WS_VISIBLE, labelX, S(296), S(140), S(24), hwnd, nullptr, nullptr, nullptr);
-        HWND mic = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWNLIST, fieldX, S(292), micComboW, S(240), hwnd, reinterpret_cast<HMENU>(IDC_MIC_DEVICE), nullptr, nullptr);
+        HWND mic = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, fieldX, S(292), micComboW, S(240), hwnd, reinterpret_cast<HMENU>(IDC_MIC_DEVICE), nullptr, nullptr);
         SendMessageW(mic, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), S(24));
         SendMessageW(mic, CB_SETITEMHEIGHT, 0, S(22));
         SendMessageW(mic, CB_SETMINVISIBLE, 12, 0);
@@ -1922,13 +2702,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         CreateWindowW(L"STATIC", L"CLIP Events: 0", WS_CHILD | WS_VISIBLE, statusTextX, S(596), statusTextW, S(18), hwnd, reinterpret_cast<HMENU>(IDC_MIC_CLIP_EVENTS), nullptr, nullptr);
         CreateWindowW(L"STATIC", L"Only while connected", WS_CHILD | WS_VISIBLE, fieldX, S(610), S(180), S(18), hwnd, reinterpret_cast<HMENU>(IDC_MIC_METER_HINT), nullptr, nullptr);
         CreateWindowW(L"STATIC", L"Music Mute Hotkey", WS_CHILD | WS_VISIBLE, labelX, S(632), S(150), S(24), hwnd, nullptr, nullptr, nullptr);
-        CreateWindowW(L"BUTTON", L"Set...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, fieldX, S(628), S(160), S(30), hwnd, reinterpret_cast<HMENU>(IDC_MUTE_HOTKEY_SET), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"Set...", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, fieldX, S(628), S(160), S(30), hwnd, reinterpret_cast<HMENU>(IDC_MUTE_HOTKEY_SET), nullptr, nullptr);
         CreateWindowW(L"STATIC", L"Current: Not set", WS_CHILD | WS_VISIBLE, fieldX + S(172), S(632), S(290), S(24), hwnd, reinterpret_cast<HMENU>(IDC_MUTE_HOTKEY_TEXT), nullptr, nullptr);
         CreateWindowW(L"STATIC", L"Mic Input Mute Hotkey", WS_CHILD | WS_VISIBLE, labelX, S(666), S(160), S(24), hwnd, nullptr, nullptr, nullptr);
-        CreateWindowW(L"BUTTON", L"Set...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, fieldX, S(662), S(160), S(30), hwnd, reinterpret_cast<HMENU>(IDC_MIC_INPUT_HOTKEY_SET), nullptr, nullptr);
+        CreateWindowW(L"BUTTON", L"Set...", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW, fieldX, S(662), S(160), S(30), hwnd, reinterpret_cast<HMENU>(IDC_MIC_INPUT_HOTKEY_SET), nullptr, nullptr);
         CreateWindowW(L"STATIC", L"Current: Not set", WS_CHILD | WS_VISIBLE, fieldX + S(172), S(666), S(290), S(24), hwnd, reinterpret_cast<HMENU>(IDC_MIC_INPUT_HOTKEY_TEXT), nullptr, nullptr);
 
+        ApplyWindowFrameTheme(hwnd);
         ApplyControlTheme(hwnd);
+        InstallButtonHoverTracking(hwnd);
         ApplyFonts(hwnd);
         PopulateCombos(hwnd);
         LoadSettings(hwnd);
@@ -1943,6 +2725,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (reinterpret_cast<HWND>(lParam) == GetDlgItem(hwnd, IDC_GAIN)) {
             SendMessageW(GetDlgItem(hwnd, IDC_GAIN), WM_CHANGEUISTATE, MAKEWPARAM(UIS_SET, UISF_HIDEFOCUS), 0);
             UpdateGainLabel(hwnd);
+            // Repaint the whole slider so the accent fill follows the thumb on large jumps.
+            InvalidateRect(GetDlgItem(hwnd, IDC_GAIN), nullptr, FALSE);
             InvalidateRect(GetDlgItem(hwnd, IDC_GAIN_HINT), nullptr, TRUE);
             ApplyLiveSettings(hwnd, false, false);
         }
@@ -1952,7 +2736,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (!mis) {
             return FALSE;
         }
-        if (mis->CtlID == IDC_SOURCE) {
+        if (mis->CtlID == IDC_SOURCE || mis->CtlID == IDC_MIC_DEVICE) {
             mis->itemHeight = static_cast<UINT>(S(24));
             return TRUE;
         }
@@ -1965,6 +2749,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         if (dis->CtlID == IDC_SOURCE) {
             DrawSourceComboItem(dis);
+            return TRUE;
+        }
+        if (dis->CtlID == IDC_MIC_DEVICE) {
+            DrawPlainComboItem(dis);
+            return TRUE;
+        }
+        if (IsOwnerPushButtonControlId(static_cast<int>(dis->CtlID))) {
+            DrawPushButton(dis);
+            return TRUE;
+        }
+        if (IsThemeSegmentControlId(static_cast<int>(dis->CtlID))) {
+            DrawThemeSegment(hwnd, dis);
             return TRUE;
         }
         if (dis->CtlID == IDC_AUTOSTART || dis->CtlID == IDC_FORCE_TX ||
@@ -2121,6 +2917,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case IDC_RESCAN:
             RequestSourceRefresh(hwnd, true);
             return 0;
+        case IDC_THEME_SYSTEM:
+        case IDC_THEME_LIGHT:
+        case IDC_THEME_DARK:
+            if (HIWORD(wParam) == BN_CLICKED) {
+                SetThemeMode(hwnd, ThemeModeForControlId(LOWORD(wParam)));
+                for (int id : { IDC_THEME_SYSTEM, IDC_THEME_LIGHT, IDC_THEME_DARK }) {
+                    InvalidateRect(GetDlgItem(hwnd, id), nullptr, FALSE);
+                }
+                return 0;
+            }
+            break;
         case IDC_START:
             MicMixApp::Instance().StartSource();
             UpdateStatus(hwnd);
@@ -2155,6 +2962,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             break;
         case IDC_SOURCE:
+            if (HIWORD(wParam) == CBN_DROPDOWN || HIWORD(wParam) == CBN_CLOSEUP) {
+                InvalidateRect(reinterpret_cast<HWND>(lParam), nullptr, FALSE);
+                return 0;
+            }
             if (HIWORD(wParam) == CBN_SELCHANGE) {
                 const int sourceSel = static_cast<int>(SendMessageW(GetDlgItem(hwnd, IDC_SOURCE), CB_GETCURSEL, 0, 0));
                 const LRESULT data = SendMessageW(GetDlgItem(hwnd, IDC_SOURCE), CB_GETITEMDATA, static_cast<WPARAM>(sourceSel), 0);
@@ -2170,6 +2981,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             break;
         case IDC_MIC_DEVICE:
+            if (HIWORD(wParam) == CBN_DROPDOWN || HIWORD(wParam) == CBN_CLOSEUP) {
+                InvalidateRect(reinterpret_cast<HWND>(lParam), nullptr, FALSE);
+                return 0;
+            }
             if (HIWORD(wParam) == CBN_SELCHANGE) {
                 ApplyLiveSettings(hwnd, false);
                 return 0;
@@ -2212,7 +3027,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         } else if (id == IDC_SUBTITLE || id == IDC_VERSION) {
             SetTextColor(hdc, g_theme.muted);
         } else if (id == IDC_REPO_LINK) {
-            SetTextColor(hdc, RGB(25, 100, 200));
+            SetTextColor(hdc, g_theme.link);
         } else if (id == IDC_MONITOR_HINT || id == IDC_MIC_METER_HINT || id == IDC_GAIN_HINT || id == IDC_FORCE_TX_HINT ||
                    id == IDC_MUSIC_CLIP_EVENTS || id == IDC_MIC_CLIP_EVENTS) {
             SetTextColor(hdc, g_theme.muted);
@@ -2221,6 +3036,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         return reinterpret_cast<INT_PTR>(inCard ? g_brushCard : g_brushBg);
     }
+    case WM_CTLCOLORBTN:
+        // Owner-drawn buttons erase with this brush before WM_DRAWITEM; match the card surface.
+        return reinterpret_cast<INT_PTR>(g_brushCard);
+    case WM_CTLCOLORLISTBOX: {
+        HDC hdc = reinterpret_cast<HDC>(wParam);
+        SetTextColor(hdc, g_theme.text);
+        SetBkColor(hdc, g_theme.inputBg);
+        return reinterpret_cast<INT_PTR>(g_brushInput);
+    }
+    case WM_SETTINGCHANGE:
+        if (g_themeMode == UiThemeMode::System && lParam != 0 &&
+            lstrcmpiW(reinterpret_cast<LPCWSTR>(lParam), L"ImmersiveColorSet") == 0) {
+            ApplyTheme(hwnd);
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
     case WM_SETCURSOR: {
         const HWND target = reinterpret_cast<HWND>(wParam);
         const UINT hit = LOWORD(lParam);
@@ -2274,10 +3104,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         const RECT bgFillRc = bufferedPaint ? clientRc : ps.rcPaint;
         FillRect(paintDc, &bgFillRc, g_brushBg);
 
-        RECT accent{ S(0), S(0), S(kClientWidthPx), S(4) };
-        HBRUSH accentBrush = CreateSolidBrush(g_theme.accent);
-        FillRect(paintDc, &accent, accentBrush);
-        DeleteObject(accentBrush);
+        RECT accent{ S(0), S(0), S(kClientWidthPx), S(3) };
+        FillHorizontalGradient(paintDc, accent, g_theme.accent, g_theme.accentSecondary);
         DrawHeaderStatusBadge(paintDc);
 
         DrawCard(paintDc, g_rcSource);
@@ -2293,18 +3121,25 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             paintDc, g_rcMicClip, ClipDangerUnitFromDb(g_lastTelemetry.micPeakDbfs),
             g_lastTelemetry.micClipRecent);
 
-        SetBkMode(paintDc, TRANSPARENT);
-        SetTextColor(paintDc, g_theme.muted);
-        SelectObject(paintDc, g_fontSmall);
-        const wchar_t* h1 = L"MICMIX SETTINGS";
-        const wchar_t* h2 = L"AUDIO ROUTING";
-        const wchar_t* h3 = L"MIX BEHAVIOR";
-        TextOutW(paintDc, S(36), S(86), h1, lstrlenW(h1));
-        TextOutW(paintDc, S(36), S(226), h2, lstrlenW(h2));
-        TextOutW(paintDc, S(36), S(358), h3, lstrlenW(h3));
+        DrawSectionHeading(paintDc, S(36), S(86), L"MICMIX SETTINGS");
+        DrawSectionHeading(paintDc, S(36), S(226), L"AUDIO ROUTING");
+        DrawSectionHeading(paintDc, S(36), S(358), L"MIX BEHAVIOR");
+
+        if (g_rcThemeSegment.right > g_rcThemeSegment.left) {
+            SetBkMode(paintDc, TRANSPARENT);
+            SetTextColor(paintDc, g_theme.muted);
+            HGDIOBJ oldLabelFont = SelectObject(paintDc, g_fontSmall ? g_fontSmall : g_fontBody);
+            RECT labelRc{ g_rcThemeSegment.left - S(110), g_rcThemeSegment.top, g_rcThemeSegment.left - S(10), g_rcThemeSegment.bottom };
+            DrawTextW(paintDc, L"Appearance", -1, &labelRc, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+            SelectObject(paintDc, oldLabelFont);
+        }
+
+        RECT statusBox = g_rcStatus;
+        InflateRect(&statusBox, S(10), S(6));
+        DrawRoundRect(paintDc, statusBox, S(8), FilledBordered(g_theme.statusBg, g_theme.statusBorder));
 
         SetBkMode(paintDc, TRANSPARENT);
-        SetTextColor(paintDc, RGB(40, 48, 61));
+        SetTextColor(paintDc, g_theme.statusText);
         HGDIOBJ oldStatusFont = SelectObject(paintDc, g_fontMono ? g_fontMono : (g_fontBody ? g_fontBody : GetStockObject(DEFAULT_GUI_FONT)));
         RECT statusRc = g_rcStatus;
         DrawTextW(
@@ -2382,6 +3217,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 void WindowThreadMain() {
     INITCOMMONCONTROLSEX icc{ sizeof(icc), ICC_STANDARD_CLASSES | ICC_BAR_CLASSES };
     InitCommonControlsEx(&icc);
+
+    Gdiplus::GdiplusStartupInput gdiplusInput;
+    g_gdiplusReady = Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiplusInput, nullptr) == Gdiplus::Ok;
+    struct GdiplusScope {
+        ~GdiplusScope() {
+            if (g_gdiplusReady) {
+                Gdiplus::GdiplusShutdown(g_gdiplusToken);
+                g_gdiplusReady = false;
+                g_gdiplusToken = 0;
+            }
+        }
+    } gdiplusScope;
 
     HINSTANCE hInst = GetPluginModuleHandle();
     WNDCLASSEXW wc{};
