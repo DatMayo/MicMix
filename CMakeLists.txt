@@ -101,6 +101,9 @@ target_link_libraries(micmix PRIVATE
   propsys
   comctl32
   shlwapi
+  shell32
+  uxtheme
+  gdiplus
 )
 
 set_target_properties(micmix PROPERTIES
@@ -152,6 +155,7 @@ if(MICMIX_BUILD_TESTS)
     shlwapi
     shell32
     uxtheme
+    gdiplus
   )
 
   add_test(NAME micmix_config_store_tests COMMAND micmix_config_store_tests)

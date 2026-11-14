@@ -575,6 +575,9 @@ void SanitizeSettings(MicMixSettings& s) {
     if (s.micGateMode != MicGateMode::AutoTs && s.micGateMode != MicGateMode::Custom) {
         s.micGateMode = MicGateMode::AutoTs;
     }
+    if (s.uiThemeMode != UiThemeMode::System && s.uiThemeMode != UiThemeMode::Light && s.uiThemeMode != UiThemeMode::Dark) {
+        s.uiThemeMode = UiThemeMode::System;
+    }
 
     StripConfigControlChars(s.loopbackDeviceId, 512);
     StripConfigControlChars(s.appProcessName, 128);
@@ -614,7 +617,8 @@ bool IsSameSettings(const MicMixSettings& a, const MicMixSettings& b) {
            NearlyEqual(a.micGateThresholdDbfs, b.micGateThresholdDbfs) &&
            a.micUseSmoothGate == b.micUseSmoothGate &&
            a.micUseKeyboardGuard == b.micUseKeyboardGuard &&
-           a.micForceTsFilters == b.micForceTsFilters;
+           a.micForceTsFilters == b.micForceTsFilters &&
+           a.uiThemeMode == b.uiThemeMode;
 }
 
 bool IsBlockedUiProcess(uint32_t pid, const std::wstring& exeName) {
@@ -987,6 +991,27 @@ MicGateMode ConfigStore::MicGateModeFromString(const std::string& value) {
     return MicGateMode::AutoTs;
 }
 
+std::string ConfigStore::UiThemeModeToString(UiThemeMode mode) {
+    switch (mode) {
+    case UiThemeMode::Light:
+        return "light";
+    case UiThemeMode::Dark:
+        return "dark";
+    default:
+        return "system";
+    }
+}
+
+UiThemeMode ConfigStore::UiThemeModeFromString(const std::string& value) {
+    if (value == "light") {
+        return UiThemeMode::Light;
+    }
+    if (value == "dark") {
+        return UiThemeMode::Dark;
+    }
+    return UiThemeMode::System;
+}
+
 bool ConfigStore::Load(MicMixSettings& outSettings, std::string& warning) {
     warning.clear();
     auto appendWarning = [&](const char* msg) {
@@ -1104,6 +1129,7 @@ bool ConfigStore::Load(MicMixSettings& outSettings, std::string& warning) {
     if (auto it = kv.find("mic.gate.keyboard_guard"); it != kv.end()) outSettings.micUseKeyboardGuard = ::ParseBool(it->second, outSettings.micUseKeyboardGuard);
     if (auto it = kv.find("mic.force_ts_filters"); it != kv.end()) outSettings.micForceTsFilters = ::ParseBool(it->second, outSettings.micForceTsFilters);
     parseInt("ui.last_open_tab", outSettings.uiLastOpenTab);
+    if (auto it = kv.find("ui.theme"); it != kv.end()) outSettings.uiThemeMode = UiThemeModeFromString(it->second);
     if (parseIssue) {
         appendWarning("Config parse issue detected; fallback values were used.");
     }
@@ -1140,6 +1166,7 @@ bool ConfigStore::Save(const MicMixSettings& settings, std::string& error) {
     ss << "mic.gate.keyboard_guard=" << BoolToString(safe.micUseKeyboardGuard) << "\n";
     ss << "mic.force_ts_filters=" << BoolToString(safe.micForceTsFilters) << "\n";
     ss << "ui.last_open_tab=" << safe.uiLastOpenTab << "\n";
+    ss << "ui.theme=" << UiThemeModeToString(safe.uiThemeMode) << "\n";
 
     {
         std::ofstream out(std::filesystem::path(Utf8ToWide(tmpPath_)), std::ios::binary | std::ios::trunc);

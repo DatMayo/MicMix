@@ -40,6 +40,12 @@ enum class MicGateMode {
     Custom = 1,
 };
 
+enum class UiThemeMode {
+    System = 0,
+    Light = 1,
+    Dark = 2,
+};
+
 struct MicMixSettings {
     int         configVersion = 1;
     SourceMode  sourceMode = SourceMode::Loopback;
@@ -65,6 +71,7 @@ struct MicMixSettings {
     bool        micUseSmoothGate = true;
     bool        micUseKeyboardGuard = true;
     bool        micForceTsFilters = true;
+    UiThemeMode uiThemeMode = UiThemeMode::System;
 };
 
 struct LoopbackDeviceInfo {
@@ -145,6 +152,8 @@ private:
     static SourceMode SourceModeFromString(const std::string& value);
     static std::string MicGateModeToString(MicGateMode mode);
     static MicGateMode MicGateModeFromString(const std::string& value);
+    static std::string UiThemeModeToString(UiThemeMode mode);
+    static UiThemeMode UiThemeModeFromString(const std::string& value);
 };
 
 template <typename T>

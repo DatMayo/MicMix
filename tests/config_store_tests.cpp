@@ -162,6 +162,42 @@ bool TestOversizedConfigIgnored() {
     return pass;
 }
 
+bool TestUiThemeRoundTrip() {
+    const fs::path base = MakeUniqueBaseDir("ui_theme");
+    ConfigStore store(base.string());
+    bool pass = true;
+
+    MicMixSettings defaults{};
+    pass &= Expect(defaults.uiThemeMode == UiThemeMode::System, "Theme should default to system");
+
+    MicMixSettings settings{};
+    settings.uiThemeMode = UiThemeMode::Dark;
+    std::string error;
+    pass &= Expect(store.Save(settings, error), "Save(ui_theme) should succeed: " + error);
+
+    MicMixSettings loaded{};
+    std::string warning;
+    pass &= Expect(store.Load(loaded, warning), "Load(ui_theme) should succeed");
+    pass &= Expect(loaded.uiThemeMode == UiThemeMode::Dark, "Dark theme should survive save/load");
+
+    if (!WriteFile(store.ConfigPath(), "ui.theme=light\n")) {
+        std::cerr << "FAIL: could not write config file for ui_theme" << std::endl;
+        return false;
+    }
+    MicMixSettings light{};
+    pass &= Expect(store.Load(light, warning), "Load(ui_theme light) should succeed");
+    pass &= Expect(light.uiThemeMode == UiThemeMode::Light, "INI ui.theme=light should be parsed");
+
+    if (!WriteFile(store.ConfigPath(), "ui.theme=neon\n")) {
+        std::cerr << "FAIL: could not write config file for ui_theme" << std::endl;
+        return false;
+    }
+    MicMixSettings unknown{};
+    pass &= Expect(store.Load(unknown, warning), "Load(ui_theme unknown) should succeed");
+    pass &= Expect(unknown.uiThemeMode == UiThemeMode::System, "Unknown ui.theme should fall back to system");
+    return pass;
+}
+
 } // namespace
 
 int main() {
@@ -176,6 +212,9 @@ int main() {
         ++failed;
     }
     if (!TestOversizedConfigIgnored()) {
+        ++failed;
+    }
+    if (!TestUiThemeRoundTrip()) {
         ++failed;
     }
     CleanupTempDirs();
