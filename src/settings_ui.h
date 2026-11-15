@@ -247,6 +247,16 @@ struct PageControl {
 };
 
 
+struct BackBuffer {
+    HDC dc = nullptr;
+    HBITMAP bmp = nullptr;
+    HGDIOBJ oldBmp = nullptr;
+    int w = 0;
+    int h = 0;
+    HDC Acquire(HDC target, int width, int height);
+    void Release();
+};
+
 struct ShapeStyle {
     COLORREF fill = RGB(0, 0, 0);
     bool hasFill = true;
@@ -453,6 +463,8 @@ ShapeStyle Outline(COLORREF border, float borderWidth = 1.0f);
 void DrawRoundRect(HDC hdc, const RECT& rc, int radius, const ShapeStyle& style);
 void DrawEllipseAA(HDC hdc, const RECT& rc, const ShapeStyle& style);
 void FillSolidRect(HDC hdc, const RECT& rc, COLORREF color);
+void FrameSolidRect(HDC hdc, const RECT& rc, COLORREF color);
+void PaintMainWindow(HDC dc, const RECT& clientRc, const RECT& paintRc);
 void DrawCard(HDC hdc, const RECT& rc);
 void DrawGlyph(HDC hdc, Glyph glyph, const RECT& box, COLORREF color, float stroke = 1.8f);
 COLORREF SurfaceColorForControl(HWND ctl);
@@ -481,7 +493,6 @@ LRESULT CALLBACK ComboSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 void InstallButtonHoverTracking(HWND hwnd);
 const wchar_t* PageTitle(int page);
 void ShowPage(HWND hwnd, int page, bool persist);
-void PaintMainWindow(HDC dc, const RECT& clientRc);
 void TogglePower(HWND hwnd);
 std::wstring GetComboSelectedText(HWND combo);
 void UpdateStatusCardText(HWND hwnd, const SourceStatus& st);

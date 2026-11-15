@@ -4,6 +4,8 @@
 
 namespace micmix_ui {
 
+BackBuffer g_miniBuffer;
+
 // ---------------------------------------------------------------------------------------
 // Mini mode window
 // ---------------------------------------------------------------------------------------
@@ -112,13 +114,7 @@ void DrawSegmentMeter(HDC dc, const RECT& rc, int lit) {
 void PaintMiniWindow(HDC dc, const RECT& client) {
     FillSolidRect(dc, client, g_theme.content);
     // 1px frame (Windows 10 draws no border around popups).
-    HPEN pen = CreatePen(PS_SOLID, 1, g_theme.border);
-    HGDIOBJ oldPen = SelectObject(dc, pen);
-    HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
-    Rectangle(dc, client.left, client.top, client.right, client.bottom);
-    SelectObject(dc, oldBrush);
-    SelectObject(dc, oldPen);
-    DeleteObject(pen);
+    FrameSolidRect(dc, client, g_theme.border);
 
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, g_theme.text);
@@ -436,19 +432,14 @@ LRESULT CALLBACK MiniWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT client{};
         GetClientRect(hwnd, &client);
-        HDC memDc = CreateCompatibleDC(hdc);
-        HBITMAP bmp = memDc ? CreateCompatibleBitmap(hdc, client.right, client.bottom) : nullptr;
-        if (memDc && bmp) {
-            HGDIOBJ old = SelectObject(memDc, bmp);
-            PaintMiniWindow(memDc, client);
+        HDC buffer = g_miniBuffer.Acquire(hdc, client.right, client.bottom);
+        if (buffer) {
+            PaintMiniWindow(buffer, client);
             BitBlt(hdc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
-                   memDc, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
-            SelectObject(memDc, old);
+                   buffer, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
         } else {
             PaintMiniWindow(hdc, client);
         }
-        if (bmp) DeleteObject(bmp);
-        if (memDc) DeleteDC(memDc);
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -458,6 +449,7 @@ LRESULT CALLBACK MiniWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         ExitMiniMode(-1);
         return 0;
     case WM_DESTROY:
+        g_miniBuffer.Release();
         if (g_miniHwnd == hwnd) {
             g_miniHwnd = nullptr;
         }
