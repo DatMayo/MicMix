@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "i18n.h"
 #include "micmix_core.h"
 
 namespace {
@@ -232,6 +233,57 @@ bool TestMiniWindowStateRoundTrip() {
     return pass;
 }
 
+// Builds the bytes of a SQLite record (key TEXT, value TEXT) the way TeamSpeak stores
+// Application.Language, surrounded by unrelated page content.
+std::vector<unsigned char> FakeSettingsDbImage(const std::string& value, bool withRowidAlias) {
+    std::vector<unsigned char> img(300, 0x00);
+    img[10] = 'L'; // decoy bytes that must not match
+    const std::string key = "Language";
+    std::vector<unsigned char> header;
+    if (withRowidAlias) header.push_back(0); // NULL column for an INTEGER PRIMARY KEY alias
+    header.push_back(static_cast<unsigned char>(13 + 2 * key.size()));
+    header.push_back(static_cast<unsigned char>(13 + 2 * value.size()));
+    img.push_back(static_cast<unsigned char>(header.size() + 1));
+    img.insert(img.end(), header.begin(), header.end());
+    img.insert(img.end(), key.begin(), key.end());
+    img.insert(img.end(), value.begin(), value.end());
+    img.insert(img.end(), 50, 0x00);
+    return img;
+}
+
+bool TestI18nLanguageDetection() {
+    bool pass = true;
+    pass &= Expect(I18nNormalize("de_DE") == "de", "de_DE should normalize to de");
+    pass &= Expect(I18nNormalize("pt-BR") == "pt", "pt-BR should normalize to pt");
+    pass &= Expect(I18nNormalize("zh_CN") == "zh", "zh_CN should normalize to zh");
+    pass &= Expect(I18nNormalize("xx_YY").empty(), "Unsupported languages should normalize to empty");
+
+    pass &= Expect(I18nFindLanguageInBytes(FakeSettingsDbImage("de_DE", false)) == "de_DE", "Language value should be read from a key/value record");
+    pass &= Expect(I18nFindLanguageInBytes(FakeSettingsDbImage("fr", true)) == "fr", "Language value should be read with a rowid alias column");
+    pass &= Expect(I18nFindLanguageInBytes(FakeSettingsDbImage("<script>", false)).empty(), "Implausible language values should be ignored");
+    std::vector<unsigned char> noKey(500, 0x41);
+    pass &= Expect(I18nFindLanguageInBytes(noKey).empty(), "Missing key should yield an empty result");
+
+    I18nApply("de");
+    pass &= Expect(I18nActiveCode() == "de", "Explicit language should be applied");
+    pass &= Expect(std::wstring(Tr(Str::NavSource)) == L"Quelle", "German translation should be used");
+    I18nApply("en");
+    pass &= Expect(std::wstring(Tr(Str::NavSource)) == L"Source", "English translation should be used");
+    for (const auto& lang : I18nLanguages()) {
+        I18nApply(lang.code);
+        for (int i = 0; i < static_cast<int>(Str::Count); ++i) {
+            if (Tr(static_cast<Str>(i))[0] == L'\0' && static_cast<Str>(i) != Str::Count) {
+                pass &= Expect(false, std::string("Empty translation in ") + lang.code + " for id " + std::to_string(i));
+            }
+        }
+    }
+    I18nApply("en");
+
+    MicMixSettings s{};
+    pass &= Expect(s.uiLanguage == "auto", "Language should default to auto");
+    return pass;
+}
+
 } // namespace
 
 int main() {
@@ -252,6 +304,9 @@ int main() {
         ++failed;
     }
     if (!TestMiniWindowStateRoundTrip()) {
+        ++failed;
+    }
+    if (!TestI18nLanguageDetection()) {
         ++failed;
     }
     CleanupTempDirs();

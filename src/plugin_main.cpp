@@ -10,6 +10,7 @@
 #include "teamspeak/public_definitions.h"
 #include "teamspeak/public_errors.h"
 #include "plugin.h"
+#include "i18n.h"
 #include "plugin_definitions.h"
 #include "micmix_core.h"
 #include "micmix_version.h"
@@ -99,6 +100,9 @@ int ts3plugin_init() {
             return 1;
         }
         const bool ok = MicMixApp::Instance().Initialize(configPath);
+        // UI language follows TeamSpeak (settings.db in the same config folder) unless overridden.
+        I18nSetTeamSpeakConfigDir(configPath);
+        I18nApply(MicMixApp::Instance().GetSettings().uiLanguage);
         return ok ? 0 : 1;
     } catch (const std::exception& ex) {
         LogError(std::string("ts3plugin_init exception: ") + ex.what());
@@ -176,7 +180,8 @@ void ts3plugin_initMenus(struct PluginMenuItem*** menuItems, char** menuIcon) {
     if (!items) {
         return;
     }
-    items[0] = CreateMenuItem(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_SETTINGS, "MicMix Settings...", SETTINGS_ICON_FILE);
+    const std::string menuText = TrUtf8(Str::WindowTitle) + "\xE2\x80\xA6"; // "…" in UTF-8
+    items[0] = CreateMenuItem(PLUGIN_MENU_TYPE_GLOBAL, MENU_ID_SETTINGS, menuText.c_str(), SETTINGS_ICON_FILE);
     if (!items[0]) {
         std::free(items);
         return;
