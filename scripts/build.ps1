@@ -189,8 +189,12 @@ function Resolve-VisualStudio {
         $productYear = [string]$vs.catalog.productLineVersion
     }
     if (-not $Generator) {
-        if (-not $productYear) {
-            $productYear = switch ($major) { 17 { "2022" } 18 { "2026" } default { "" } }
+        # Known majors map directly; VS 2026 reports productLineVersion "18", not a year.
+        $knownYear = switch ($major) { 17 { "2022" } 18 { "2026" } default { "" } }
+        if ($knownYear) {
+            $productYear = $knownYear
+        } elseif ($productYear -notmatch '^\d{4}$') {
+            $productYear = ""
         }
         if (-not $productYear) {
             throw "Unknown Visual Studio version $($vs.installationVersion). Pass -Generator explicitly."
