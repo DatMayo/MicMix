@@ -848,7 +848,11 @@ void SetStatusText(HWND hwnd, const std::wstring& text) {
     }
     g_lastStatusText = text;
     if (hwnd && g_rcStatus.right > g_rcStatus.left && g_rcStatus.bottom > g_rcStatus.top) {
-        InvalidateRect(hwnd, &g_rcStatus, FALSE);
+        // Only the Diagnostics page shows this text. Its rectangle overlaps controls of other
+        // pages (e.g. the microphone dropdown), which would otherwise be repainted constantly.
+        if (g_page == kPageDiagnostics) {
+            InvalidateRect(hwnd, &g_rcStatus, FALSE);
+        }
     }
 }
 
@@ -1005,7 +1009,9 @@ void UpdateMusicMeter(HWND hwnd) {
     g_lastMusicMeterHoldPx = holdPx;
     g_lastMusicMeterActive = meterActive;
     if (meterChanged) {
-        InvalidateRect(hwnd, &g_rcMeter, FALSE);
+        if (g_page == kPageMix) {
+            InvalidateRect(hwnd, &g_rcMeter, FALSE);
+        }
     }
 
     const int clipLitSegments = ClipLitSegmentsFromDb(shownPeakDb);
@@ -1015,7 +1021,9 @@ void UpdateMusicMeter(HWND hwnd) {
     g_lastMusicClipLitSegments = clipLitSegments;
     g_lastMusicClipRecent = t.sourceClipRecent;
     if (clipChanged) {
-        InvalidateRect(hwnd, &g_rcMusicClip, FALSE);
+        if (g_page == kPageMix) {
+            InvalidateRect(hwnd, &g_rcMusicClip, FALSE);
+        }
     }
 }
 
@@ -1070,7 +1078,9 @@ void UpdateMicMeter(HWND hwnd) {
     g_lastMicMeterHoldPx = holdPx;
     g_lastMicMeterActive = meterActive;
     if (meterChanged) {
-        InvalidateRect(hwnd, &g_rcMicMeter, FALSE);
+        if (g_page == kPageMix) {
+            InvalidateRect(hwnd, &g_rcMicMeter, FALSE);
+        }
     }
 
     const int clipLitSegments = ClipLitSegmentsFromDb(t.micPeakDbfs);
@@ -1080,7 +1090,9 @@ void UpdateMicMeter(HWND hwnd) {
     g_lastMicClipLitSegments = clipLitSegments;
     g_lastMicClipRecent = t.micClipRecent;
     if (clipChanged) {
-        InvalidateRect(hwnd, &g_rcMicClip, FALSE);
+        if (g_page == kPageMix) {
+            InvalidateRect(hwnd, &g_rcMicClip, FALSE);
+        }
     }
 }
 
@@ -2807,6 +2819,20 @@ LRESULT CALLBACK ComboSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         break;
     case WM_MOUSELEAVE:
         if (g_hoverControl == hwnd) {
+            // The native combobox tracks the mouse itself and can cancel our tracking, which
+            // produces a leave while the cursor is still inside. Re-arm instead of repainting.
+            POINT pt{};
+            RECT rc{};
+            GetCursorPos(&pt);
+            GetWindowRect(hwnd, &rc);
+            if (PtInRect(&rc, pt)) {
+                TRACKMOUSEEVENT tme{};
+                tme.cbSize = sizeof(tme);
+                tme.dwFlags = TME_LEAVE;
+                tme.hwndTrack = hwnd;
+                TrackMouseEvent(&tme);
+                break;
+            }
             g_hoverControl = nullptr;
             InvalidateRect(hwnd, nullptr, FALSE);
         }
@@ -3488,7 +3514,7 @@ HWND CreateMiniWindow(HWND main) {
     GetWindowRect(main, &mainRc);
     const int w = S(kMiniClientWidthPx);
     const int h = S(kMiniClientHeightPx);
-    HWND mini = CreateWindowExW(WS_EX_APPWINDOW, L"MicMixMiniWindow", L"MicMix", WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU,
+    HWND mini = CreateWindowExW(WS_EX_APPWINDOW, L"MicMixMiniWindow", L"MicMix", WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU | WS_CLIPCHILDREN,
                                 mainRc.right - w, mainRc.top, w, h, nullptr, nullptr, hInst, nullptr);
     if (mini) {
         ApplyWindowFrameTheme(mini);
@@ -4203,7 +4229,7 @@ void WindowThreadMain() {
         0,
         wc.lpszClassName,
         L"MicMix Settings",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
         []() {
