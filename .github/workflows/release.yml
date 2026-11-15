@@ -1,12 +1,31 @@
-name: Release On Tag
+name: Release
 
+# Two ways to publish a release:
+#  1. Actions tab -> "Release" -> "Run workflow": bumps the version from the commits since the
+#     last tag (or the chosen bump), updates CHANGELOG.md, commits, tags and publishes.
+#  2. Push a tag vX.Y.Z yourself (for example with scripts/release.ps1 -Push).
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump (auto = from Conventional Commits)"
+        type: choice
+        default: auto
+        options:
+          - auto
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -15,12 +34,29 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Create release commit and tag
+        if: github.event_name == 'workflow_dispatch'
+        id: bump
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          ./scripts/release.ps1 -Bump "${{ inputs.bump }}" -SkipBuild -Push
 
       - name: Resolve release metadata
         id: meta
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ steps.bump.outputs.tag }}"
+          } else {
+            $tag = "${{ github.ref_name }}"
+          }
+          if (-not $tag) { throw "No release tag resolved." }
           $version = $tag.TrimStart('v')
           $artifact = "dist/MicMix-$version-win64.ts3_plugin"
           $checksum = "$artifact.sha256"

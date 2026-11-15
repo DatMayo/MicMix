@@ -17,7 +17,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Build, test and package
         shell: pwsh
         run: ./scripts/build.ps1 -Configuration Release
+
+      - name: Release dry run
+        shell: pwsh
+        run: ./scripts/release.ps1 -DryRun

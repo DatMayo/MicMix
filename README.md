@@ -150,6 +150,26 @@ ctest --test-dir build -C Release --output-on-failure
 .\scripts\package_ts3_plugin.ps1 -Configuration Release
 ```
 
+## Releasing
+
+Releases are cut from the commits since the last `vX.Y.Z` tag. The next version follows
+[`VERSIONING.md`](./VERSIONING.md) and Conventional Commits: a breaking change bumps MAJOR, any `feat` bumps
+MINOR, everything else bumps PATCH.
+
+**From GitHub (recommended):** Actions → `Release` → `Run workflow`, choose `auto` (or `patch` / `minor` / `major`).
+The workflow updates `VERSION`, `CMakeLists.txt` and `CHANGELOG.md`, commits `chore(release): vX.Y.Z`, tags it,
+builds and tests the plugin and publishes a GitHub release with the `.ts3_plugin` and its SHA256.
+
+**Locally:**
+
+```powershell
+.\scripts\release.ps1 -DryRun   # show next version and release notes
+.\scripts\release.ps1 -Push     # build, commit, tag and push; GitHub publishes the release
+```
+
+Notes written under `## [Unreleased]` in `CHANGELOG.md` become the release notes. Without them, the notes are
+generated from the commit subjects (Added / Fixed / Changed).
+
 ## Settings Window
 
 The settings window uses a sidebar with five pages: `Source`, `Mix`, `Hotkeys`, `Appearance` and `Diagnostics`.

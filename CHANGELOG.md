@@ -16,6 +16,7 @@ All notable changes to this project are documented in this file.
 - Mini mode: a compact, draggable window with a large power button, source chip, volume slider, music/mic meters and mute buttons. It can be pinned on top and expanded back into the full window.
 - Anti-aliased drawing via GDI+, on/off switches instead of checkboxes, custom-painted dropdowns, slimmer slider with accent fill.
 - CI and the release workflow now run `scripts/build.ps1`, so local and CI builds follow the same steps.
+- Automated releases: `scripts/release.ps1` and the `Release` workflow (manual run or tag push) bump the version from the commits since the last tag, update the changelog, tag and publish the GitHub release.
 
 ### Fixed
 
