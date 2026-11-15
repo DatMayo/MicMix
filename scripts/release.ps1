@@ -126,7 +126,18 @@ try {
 
     # 1. Commits since the last release tag ------------------------------------------
     $lastTag = @(Get-GitLines -ArgumentList @("describe", "--tags", "--abbrev=0", "--match", "v*")) | Select-Object -First 1
-    $range = if ($lastTag) { "$lastTag..HEAD" } else { "HEAD" }
+    $baseLabel = $lastTag
+    $range = "HEAD"
+    if ($lastTag) {
+        $range = "$lastTag..HEAD"
+    } else {
+        # No tags (e.g. a fresh fork): start after the last "chore(release)" commit instead.
+        $lastRelease = @(Get-GitLines -ArgumentList @("log", "-1", "--format=%h", "--extended-regexp", "--grep=^chore\(release\)")) | Select-Object -First 1
+        if ($lastRelease) {
+            $range = "$lastRelease..HEAD"
+            $baseLabel = "release commit $lastRelease"
+        }
+    }
     $sep = [char]0x1f
     $end = [char]0x1e
     $raw = @(Get-GitLines -ArgumentList @("log", $range, "--no-merges", "--format=%h$sep%s$sep%b$end")) -join "`n"
@@ -150,7 +161,7 @@ try {
     $hasCuratedNotes = $unreleasedMatch.Success -and ($unreleasedMatch.Groups['body'].Value.Trim().Length -gt 0)
 
     if ($commits.Count -eq 0 -and -not $hasCuratedNotes) {
-        throw "Nothing to release: no commits since $(if ($lastTag) { $lastTag } else { 'the beginning' })."
+        throw "Nothing to release: no commits since $(if ($baseLabel) { $baseLabel } else { 'the beginning' })."
     }
 
     # 2. Next version -------------------------------------------------------------
@@ -210,12 +221,13 @@ try {
             }
         }
         $sectionBody = $blocks -join "`n`n"
-        $source = "$($commits.Count) commit(s) since $(if ($lastTag) { $lastTag } else { 'the beginning' })"
+        $source = "$($commits.Count) commit(s) since $(if ($baseLabel) { $baseLabel } else { 'the beginning' })"
     }
     $section = "## [$newVersion] - $date`n`n$sectionBody`n"
 
     Write-Host "Release   : $current -> $newVersion ($effectiveBump)" -ForegroundColor Cyan
     Write-Host "Branch    : $branch"
+    Write-Host "Based on  : $(if ($baseLabel) { $baseLabel } else { 'full history' }) ($($commits.Count) commit(s))"
     Write-Host "Notes from: $source"
     Write-Host ""
     Write-Host $section
