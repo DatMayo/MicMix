@@ -578,6 +578,12 @@ void SanitizeSettings(MicMixSettings& s) {
     if (s.uiThemeMode != UiThemeMode::System && s.uiThemeMode != UiThemeMode::Light && s.uiThemeMode != UiThemeMode::Dark) {
         s.uiThemeMode = UiThemeMode::System;
     }
+    // A position only makes sense as a pair within the virtual desktop range.
+    const auto posValid = [](int v) { return v > -30000 && v < 30000; };
+    if (!posValid(s.uiMiniX) || !posValid(s.uiMiniY)) {
+        s.uiMiniX = kUiPosUnset;
+        s.uiMiniY = kUiPosUnset;
+    }
 
     StripConfigControlChars(s.loopbackDeviceId, 512);
     StripConfigControlChars(s.appProcessName, 128);
@@ -618,7 +624,11 @@ bool IsSameSettings(const MicMixSettings& a, const MicMixSettings& b) {
            a.micUseSmoothGate == b.micUseSmoothGate &&
            a.micUseKeyboardGuard == b.micUseKeyboardGuard &&
            a.micForceTsFilters == b.micForceTsFilters &&
-           a.uiThemeMode == b.uiThemeMode;
+           a.uiThemeMode == b.uiThemeMode &&
+           a.uiMiniMode == b.uiMiniMode &&
+           a.uiMiniPinned == b.uiMiniPinned &&
+           a.uiMiniX == b.uiMiniX &&
+           a.uiMiniY == b.uiMiniY;
 }
 
 bool IsBlockedUiProcess(uint32_t pid, const std::wstring& exeName) {
@@ -1130,6 +1140,10 @@ bool ConfigStore::Load(MicMixSettings& outSettings, std::string& warning) {
     if (auto it = kv.find("mic.force_ts_filters"); it != kv.end()) outSettings.micForceTsFilters = ::ParseBool(it->second, outSettings.micForceTsFilters);
     parseInt("ui.last_open_tab", outSettings.uiLastOpenTab);
     if (auto it = kv.find("ui.theme"); it != kv.end()) outSettings.uiThemeMode = UiThemeModeFromString(it->second);
+    if (auto it = kv.find("ui.mini.enabled"); it != kv.end()) outSettings.uiMiniMode = ::ParseBool(it->second, outSettings.uiMiniMode);
+    if (auto it = kv.find("ui.mini.pinned"); it != kv.end()) outSettings.uiMiniPinned = ::ParseBool(it->second, outSettings.uiMiniPinned);
+    parseInt("ui.mini.x", outSettings.uiMiniX);
+    parseInt("ui.mini.y", outSettings.uiMiniY);
     if (parseIssue) {
         appendWarning("Config parse issue detected; fallback values were used.");
     }
@@ -1167,6 +1181,12 @@ bool ConfigStore::Save(const MicMixSettings& settings, std::string& error) {
     ss << "mic.force_ts_filters=" << BoolToString(safe.micForceTsFilters) << "\n";
     ss << "ui.last_open_tab=" << safe.uiLastOpenTab << "\n";
     ss << "ui.theme=" << UiThemeModeToString(safe.uiThemeMode) << "\n";
+    ss << "ui.mini.enabled=" << BoolToString(safe.uiMiniMode) << "\n";
+    ss << "ui.mini.pinned=" << BoolToString(safe.uiMiniPinned) << "\n";
+    if (safe.uiMiniX != kUiPosUnset && safe.uiMiniY != kUiPosUnset) {
+        ss << "ui.mini.x=" << safe.uiMiniX << "\n";
+        ss << "ui.mini.y=" << safe.uiMiniY << "\n";
+    }
 
     {
         std::ofstream out(std::filesystem::path(Utf8ToWide(tmpPath_)), std::ios::binary | std::ios::trunc);

@@ -40,6 +40,8 @@ enum class MicGateMode {
     Custom = 1,
 };
 
+constexpr int kUiPosUnset = -100000;
+
 enum class UiThemeMode {
     System = 0,
     Light = 1,
@@ -72,6 +74,10 @@ struct MicMixSettings {
     bool        micUseKeyboardGuard = true;
     bool        micForceTsFilters = true;
     UiThemeMode uiThemeMode = UiThemeMode::System;
+    bool        uiMiniMode = false;     // reopen the settings UI in mini mode
+    bool        uiMiniPinned = false;   // mini window stays on top
+    int         uiMiniX = kUiPosUnset;  // last mini window position (screen px)
+    int         uiMiniY = kUiPosUnset;
 };
 
 struct LoopbackDeviceInfo {

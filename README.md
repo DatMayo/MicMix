@@ -139,7 +139,7 @@ Useful options:
 | `-Version 1.3.0` | Override the version from `VERSION` |
 | `-Install` | Copy the plugin into `%APPDATA%\TS3Client\plugins` (close TeamSpeak first) |
 
-CI and the release workflow use the same script.
+CI and the release workflow use the same script. Every CI run also attaches the built `.ts3_plugin` as an artifact (Actions → run → *Artifacts*), handy for testing a pull request before merging.
 
 ### Manual build
 
@@ -177,7 +177,7 @@ The status card at the top shows what MicMix is doing and holds the master On/Of
 
 `Mini mode` (bottom of the sidebar) switches to a compact window with a power button, the current source,
 music volume, level meters and mute buttons. Pin it to keep it above other windows; the expand button returns
-to the full window.
+to the full window. If you close MicMix in mini mode, it reopens in mini mode at the same place.
 
 ## Appearance (Dark Mode)
 
