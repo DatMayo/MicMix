@@ -32,6 +32,7 @@ using std::min;
 #include <objidl.h>
 #include <gdiplus.h>
 
+#include "i18n.h"
 #include "micmix_core.h"
 #include "micmix_version.h"
 #include "resource.h"
@@ -70,6 +71,7 @@ enum ControlId {
     IDC_THEME_DARK = 1037,
     IDC_POWER = 1040,
     IDC_OPEN_MINI = 1041,
+    IDC_LANGUAGE = 1042,
     IDC_NAV_FIRST = 1050, // IDC_NAV_FIRST + page index
     IDC_NAV_LAST = 1054,
     // Mini window
@@ -407,11 +409,14 @@ HFONT g_fontPageTitle = nullptr;
 HFONT g_fontRowTitle = nullptr;
 HFONT g_fontBrand = nullptr;
 
+constexpr int kNoText = -1;
+constexpr int kTextFromControl = -2; // subtitle is a live STATIC control
+
 struct RowDef {
     int page = 0;
     RECT rc{};
-    const wchar_t* title = L"";
-    const wchar_t* subtitle = L"";
+    int title = kNoText;     // Str id
+    int subtitle = kNoText;  // Str id, kNoText or kTextFromControl
     bool divider = false; // draw a divider below this row
     int textRight = 0;    // right edge for title/subtitle text
 };
@@ -480,6 +485,8 @@ void ApplyDpi(HWND source, int newDpi, const RECT* suggested);
 void SyncDpiToWindow(HWND w);
 void ApplyMiniFonts(HWND mini);
 int g_miniPosX = kUiPosUnset;
+std::string g_uiLanguage = "auto";
+void PopulateLanguageCombo(HWND hwnd);
 int g_miniPosY = kUiPosUnset;
 
 bool IsOwnerCheckboxControlId(int id) {
@@ -533,6 +540,7 @@ bool IsHandCursorControlId(int id) {
     case IDC_THEME_DARK:
     case IDC_POWER:
     case IDC_OPEN_MINI:
+    case IDC_LANGUAGE:
     case IDC_MINI_POWER:
     case IDC_MINI_SOURCE:
     case IDC_MINI_MUTE_MUSIC:
@@ -898,7 +906,8 @@ void UpdateWindowTitleState(HWND hwnd, bool active) {
     }
     g_windowTitleStateValid = true;
     g_windowTitleActive = active;
-    SetWindowTextW(hwnd, active ? L"MicMix Settings - ACTIVE" : L"MicMix Settings - OFF");
+    const std::wstring title = std::wstring(Tr(Str::WindowTitle)) + L" \x2013 " + Tr(active ? Str::PowerOn : Str::PowerOff);
+    SetWindowTextW(hwnd, title.c_str());
 }
 
 void UpdateHeaderStatusBadgeState(HWND hwnd, const MicMixSettings& settings, const SourceStatus& status) {
@@ -990,15 +999,15 @@ void UpdateMusicMeter(HWND hwnd) {
     }
 
     if (!meterActive) {
-        SetStaticTextIfChanged(txt, g_lastMusicMeterText, L"No signal");
+        SetStaticTextIfChanged(txt, g_lastMusicMeterText, Tr(Str::NoSignal));
     } else {
-        const wchar_t* grade = L"OK";
+        const wchar_t* grade = Tr(Str::LevelOk);
         if (shownPeakDb > -8.0f) {
-            grade = L"Hot";
+            grade = Tr(Str::LevelHot);
         } else if (shownPeakDb > -16.0f) {
-            grade = L"Warm";
+            grade = Tr(Str::LevelWarm);
         } else if (shownPeakDb < -35.0f) {
-            grade = L"Quiet";
+            grade = Tr(Str::LevelQuiet);
         }
         wchar_t meter[96];
         swprintf_s(meter, L"%.1f dBFS  |  %s", shownPeakDb, grade);
@@ -1058,15 +1067,15 @@ void UpdateMicMeter(HWND hwnd) {
     }
 
     if (t.micRmsDbfs <= -119.0f) {
-        SetStaticTextIfChanged(txt, g_lastMicMeterText, L"No signal");
+        SetStaticTextIfChanged(txt, g_lastMicMeterText, Tr(Str::NoSignal));
     } else {
-        const wchar_t* grade = L"OK";
+        const wchar_t* grade = Tr(Str::LevelOk);
         if (t.micPeakDbfs > -8.0f) {
-            grade = L"Hot";
+            grade = Tr(Str::LevelHot);
         } else if (t.micPeakDbfs > -16.0f) {
-            grade = L"Warm";
+            grade = Tr(Str::LevelWarm);
         } else if (t.micPeakDbfs < -35.0f) {
-            grade = L"Quiet";
+            grade = Tr(Str::LevelQuiet);
         }
         wchar_t meter[96];
         swprintf_s(meter, L"%.1f dBFS  |  %s", t.micRmsDbfs, grade);
@@ -1109,7 +1118,7 @@ void UpdateMonitorButton(HWND hwnd) {
         return;
     }
     const bool enabled = MicMixApp::Instance().IsMonitorEnabled();
-    const wchar_t* next = enabled ? L"Monitor Mix: On" : L"Monitor Mix: Off";
+    const wchar_t* next = Tr(enabled ? Str::MonitorOn : Str::MonitorOff);
     wchar_t current[64]{};
     GetWindowTextW(btn, current, static_cast<int>(std::size(current)));
     if (wcscmp(current, next) != 0) {
@@ -1181,12 +1190,12 @@ std::wstring VkToText(UINT vk) {
 
 std::wstring FormatHotkeyText(UINT mods, UINT vk) {
     if (vk == 0) {
-        return L"Not set";
+        return Tr(Str::HotkeyNotSet);
     }
     std::wstring out;
-    if ((mods & MOD_CONTROL) != 0) out += L"Ctrl + ";
+    if ((mods & MOD_CONTROL) != 0) out += std::wstring(Tr(Str::KeyCtrl)) + L" + ";
     if ((mods & MOD_ALT) != 0) out += L"Alt + ";
-    if ((mods & MOD_SHIFT) != 0) out += L"Shift + ";
+    if ((mods & MOD_SHIFT) != 0) out += std::wstring(Tr(Str::KeyShift)) + L" + ";
     if ((mods & MOD_WIN) != 0) out += L"Win + ";
     out += VkToText(vk);
     return out;
@@ -1208,7 +1217,7 @@ void UpdateMuteHotkeyLabel(HWND hwnd) {
     if (!label) {
         return;
     }
-    const std::wstring text = L"Current: " + FormatHotkeyText(g_muteHotkeyModifiers, g_muteHotkeyVk);
+    const std::wstring text = std::wstring(Tr(Str::HotkeyCurrentPrefix)) + FormatHotkeyText(g_muteHotkeyModifiers, g_muteHotkeyVk);
     SetWindowTextW(label, text.c_str());
 }
 
@@ -1220,7 +1229,7 @@ void UpdateMicInputMuteHotkeyLabel(HWND hwnd) {
     if (!label) {
         return;
     }
-    const std::wstring text = L"Current: " + FormatHotkeyText(g_micInputMuteHotkeyModifiers, g_micInputMuteHotkeyVk);
+    const std::wstring text = std::wstring(Tr(Str::HotkeyCurrentPrefix)) + FormatHotkeyText(g_micInputMuteHotkeyModifiers, g_micInputMuteHotkeyVk);
     SetWindowTextW(label, text.c_str());
 }
 
@@ -1239,7 +1248,7 @@ void BeginHotkeyCapture(HWND hwnd, HotkeyCaptureTarget target) {
         labelId = IDC_MIC_INPUT_HOTKEY_TEXT;
     }
     if (labelId != 0) {
-        SetWindowTextW(GetDlgItem(hwnd, labelId), L"Current: Press key... (Esc=Cancel, Del=Clear)");
+        SetWindowTextW(GetDlgItem(hwnd, labelId), Tr(Str::HotkeyPress));
     }
     InvalidateRect(GetDlgItem(hwnd, IDC_MUTE_HOTKEY_SET), nullptr, FALSE);
     InvalidateRect(GetDlgItem(hwnd, IDC_MIC_INPUT_HOTKEY_SET), nullptr, FALSE);
@@ -1313,7 +1322,7 @@ void RequestSourceRefresh(HWND hwnd, bool reloadSettings) {
     if (refreshBtn) {
         EnableWindow(refreshBtn, FALSE);
     }
-    SetStatusText(hwnd, L"Refreshing source list...");
+    SetStatusText(hwnd, Tr(Str::RefreshingSources));
 
     if (g_sourceRefreshInFlight.exchange(true, std::memory_order_acq_rel)) {
         g_sourceRefreshPending.store(true, std::memory_order_release);
@@ -1327,7 +1336,7 @@ void RequestSourceRefresh(HWND hwnd, bool reloadSettings) {
         if (refreshBtn) {
             EnableWindow(refreshBtn, TRUE);
         }
-        SetStatusText(hwnd, L"Refresh failed to start");
+        SetStatusText(hwnd, Tr(Str::RefreshFailed));
     }
 }
 
@@ -1356,15 +1365,15 @@ void PopulateCombos(HWND hwnd) {
     HWND source = GetDlgItem(hwnd, IDC_SOURCE);
     SendMessageW(source, CB_RESETCONTENT, 0, 0);
 
-    addStaticItem(source, L"Audio Channels:", kSourceItemHeader);
+    addStaticItem(source, Tr(Str::SourceHeaderChannels), kSourceItemHeader);
     if (g_loopbacks.empty()) {
-        addStaticItem(source, L"  (no audio channels found)", kSourceItemPlaceholder);
+        addStaticItem(source, (std::wstring(L"  ") + Tr(Str::SourceNoChannels)).c_str(), kSourceItemPlaceholder);
     } else {
         for (const auto& d : g_loopbacks) {
             std::wstring label = L"  ";
             label += Utf8ToWide(d.name);
             if (d.isDefault) {
-                label += L" (Default)";
+                label += Tr(Str::DefaultSuffix);
             }
             SourceChoice choice{};
             choice.type = SourceChoiceType::Loopback;
@@ -1374,9 +1383,9 @@ void PopulateCombos(HWND hwnd) {
     }
 
     addStaticItem(source, L"------------------------------", kSourceItemDivider);
-    addStaticItem(source, L"Running Apps:", kSourceItemHeader);
+    addStaticItem(source, Tr(Str::SourceHeaderApps), kSourceItemHeader);
     if (g_apps.empty()) {
-        addStaticItem(source, L"  (no running app found)", kSourceItemPlaceholder);
+        addStaticItem(source, (std::wstring(L"  ") + Tr(Str::SourceNoApps)).c_str(), kSourceItemPlaceholder);
     } else {
         for (const auto& p : g_apps) {
             std::wstring label = L"  ";
@@ -1399,7 +1408,7 @@ void PopulateCombos(HWND hwnd) {
         for (const auto& d : g_captureDevices) {
             std::wstring label = Utf8ToWide(d.name);
             if (d.isDefault) {
-                label += L" (Default)";
+                label += Tr(Str::DefaultSuffix);
             }
             SendMessageW(mic, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
         }
@@ -1544,6 +1553,7 @@ MicMixSettings CollectSettings(HWND hwnd) {
     s.uiMiniPinned = g_miniPinned;
     s.uiMiniX = g_miniPosX;
     s.uiMiniY = g_miniPosY;
+    s.uiLanguage = g_uiLanguage;
     return s;
 }
 
@@ -1554,13 +1564,13 @@ void UpdateStatus(HWND hwnd, bool includeDetails = true) {
 
     if (t.sourceClipEvents != g_lastMusicClipEvents) {
         wchar_t clipMusic[64]{};
-        swprintf_s(clipMusic, L"CLIP Events: %llu", static_cast<unsigned long long>(t.sourceClipEvents));
+        swprintf_s(clipMusic, Tr(Str::ClipEvents), static_cast<unsigned long long>(t.sourceClipEvents));
         SetWindowTextW(GetDlgItem(hwnd, IDC_MUSIC_CLIP_EVENTS), clipMusic);
         g_lastMusicClipEvents = t.sourceClipEvents;
     }
     if (t.micClipEvents != g_lastMicClipEvents) {
         wchar_t clipMic[64]{};
-        swprintf_s(clipMic, L"CLIP Events: %llu", static_cast<unsigned long long>(t.micClipEvents));
+        swprintf_s(clipMic, Tr(Str::ClipEvents), static_cast<unsigned long long>(t.micClipEvents));
         SetWindowTextW(GetDlgItem(hwnd, IDC_MIC_CLIP_EVENTS), clipMic);
         g_lastMicClipEvents = t.micClipEvents;
     }
@@ -2272,7 +2282,7 @@ void DrawClipStrip(HDC hdc, const RECT& rcStrip, float dangerUnit, bool clipRece
     SetTextColor(drawDc, clipRecent ? g_theme.clipTextHot : g_theme.clipText);
     SelectObject(drawDc, g_fontTiny ? g_fontTiny : (g_fontHint ? g_fontHint : g_fontSmall));
     RECT labelRc{ rc.left + S(5), rc.top, rc.right - S(52), rc.bottom };
-    DrawTextW(drawDc, L"Clip Meter", -1, &labelRc, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+    DrawTextW(drawDc, Tr(Str::ClipMeter), -1, &labelRc, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
 
     RECT inner{ rc.left + 1, rc.top + 1, rc.right - 1, rc.bottom - 1 };
     RECT pulse{};
@@ -2478,7 +2488,7 @@ void DrawPowerToggle(const DRAWITEMSTRUCT* dis, bool on) {
     SetBkMode(dis->hDC, TRANSPARENT);
     SetTextColor(dis->hDC, g_theme.text);
     HGDIOBJ oldFont = SelectObject(dis->hDC, g_fontBody);
-    DrawTextW(dis->hDC, on ? L"On" : L"Off", -1, &textRc, DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX);
+    DrawTextW(dis->hDC, Tr(on ? Str::PowerOn : Str::PowerOff), -1, &textRc, DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX);
     SelectObject(dis->hDC, oldFont);
 }
 
@@ -2880,11 +2890,11 @@ void InstallButtonHoverTracking(HWND hwnd) {
 
 const wchar_t* PageTitle(int page) {
     switch (page) {
-    case kPageSource: return L"Source";
-    case kPageMix: return L"Mix";
-    case kPageHotkeys: return L"Hotkeys";
-    case kPageAppearance: return L"Appearance";
-    default: return L"Diagnostics";
+    case kPageSource: return Tr(Str::NavSource);
+    case kPageMix: return Tr(Str::NavMix);
+    case kPageHotkeys: return Tr(Str::NavHotkeys);
+    case kPageAppearance: return Tr(Str::NavAppearance);
+    default: return Tr(Str::NavDiagnostics);
     }
 }
 
@@ -2943,19 +2953,19 @@ void PaintMainWindow(HDC dc, const RECT& clientRc) {
         if (row.page != g_page) {
             continue;
         }
-        const bool hasSubtitle = row.subtitle == nullptr || row.subtitle[0] != L'\0';
+        const bool hasSubtitle = row.subtitle != kNoText;
         RECT tr{ row.rc.left + pad, row.rc.top + S(13), row.textRight, row.rc.top + S(33) };
         if (!hasSubtitle) {
             tr = { row.rc.left + pad, row.rc.top, row.textRight, row.rc.bottom };
         }
         SetTextColor(dc, g_theme.text);
         SelectObject(dc, g_fontRowTitle ? g_fontRowTitle : g_fontBody);
-        DrawTextW(dc, row.title, -1, &tr, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
-        if (row.subtitle && row.subtitle[0] != L'\0') {
+        DrawTextW(dc, Tr(static_cast<Str>(row.title)), -1, &tr, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+        if (row.subtitle >= 0) {
             RECT sr{ row.rc.left + pad, row.rc.top + S(33), row.textRight, row.rc.top + S(51) };
             SetTextColor(dc, g_theme.muted);
             SelectObject(dc, g_fontSmall ? g_fontSmall : g_fontBody);
-            DrawTextW(dc, row.subtitle, -1, &sr, DT_SINGLELINE | DT_TOP | DT_END_ELLIPSIS | DT_NOPREFIX);
+            DrawTextW(dc, Tr(static_cast<Str>(row.subtitle)), -1, &sr, DT_SINGLELINE | DT_TOP | DT_END_ELLIPSIS | DT_NOPREFIX);
         }
         if (row.divider) {
             RECT line{ row.rc.left + 1, row.rc.bottom - 1, row.rc.right - 1, row.rc.bottom };
@@ -2975,7 +2985,7 @@ void PaintMainWindow(HDC dc, const RECT& clientRc) {
                 RECT hint{ card.rc.left + S(2), card.rc.bottom + S(10), card.rc.right, card.rc.bottom + S(30) };
                 SetTextColor(dc, g_theme.muted);
                 SelectObject(dc, g_fontSmall ? g_fontSmall : g_fontBody);
-                DrawTextW(dc, L"Click Set\x2026 and press the key combination. Esc cancels, Del clears.", -1, &hint, DT_SINGLELINE | DT_TOP | DT_NOPREFIX);
+                DrawTextW(dc, Tr(Str::HotkeyHint), -1, &hint, DT_SINGLELINE | DT_TOP | DT_NOPREFIX);
             }
         }
     } else if (g_page == kPageDiagnostics) {
@@ -3029,25 +3039,25 @@ void UpdateStatusCardText(HWND hwnd, const SourceStatus& st) {
     const std::wstring src = GetComboSelectedText(GetDlgItem(hwnd, IDC_SOURCE));
     std::wstring mic = GetComboSelectedText(GetDlgItem(hwnd, IDC_MIC_DEVICE));
     if (mic.empty()) {
-        mic = L"default microphone";
+        mic = Tr(Str::DefaultMicrophone);
     }
-    const std::wstring route = (src.empty() ? std::wstring(L"No source selected") : src) + L"  \x2192  " + mic;
+    const std::wstring route = (src.empty() ? std::wstring(Tr(Str::NoSourceSelected)) : src) + L"  \x2192  " + mic;
     switch (g_headerStatusBadgeState) {
     case HeaderStatusBadgeState::Active:
-        title = L"MicMix is sending music";
+        title = Tr(Str::StatusSending);
         subtitle = route;
         break;
     case HeaderStatusBadgeState::Muted:
-        title = L"Music is muted";
+        title = Tr(Str::StatusMuted);
         subtitle = route;
         break;
     case HeaderStatusBadgeState::Error:
-        title = L"Source error";
-        subtitle = Utf8ToWide(st.message.empty() ? std::string("The source stopped unexpectedly") : st.message);
+        title = Tr(Str::StatusError);
+        subtitle = st.message.empty() ? std::wstring(Tr(Str::SourceErrorFallback)) : Utf8ToWide(st.message);
         break;
     default:
-        title = L"MicMix is off";
-        subtitle = src.empty() ? L"Choose a source, then switch MicMix on" : L"Ready: " + route;
+        title = Tr(Str::StatusOff);
+        subtitle = src.empty() ? std::wstring(Tr(Str::StatusOffHint)) : Tr(Str::StatusReadyPrefix) + route;
         break;
     }
     if (title != g_statusTitle || subtitle != g_statusSubtitle) {
@@ -3074,15 +3084,15 @@ std::wstring MiniHotkeyHint() {
     const bool music = g_muteHotkeyVk != 0;
     const bool mic = g_micInputMuteHotkeyVk != 0;
     if (!music && !mic) {
-        return L"Set hotkeys in the main window";
+        return Tr(Str::MiniHotkeysHint);
     }
     std::wstring text;
     if (music) {
-        text += FormatHotkeyText(g_muteHotkeyModifiers, g_muteHotkeyVk) + L" music";
+        text += FormatHotkeyText(g_muteHotkeyModifiers, g_muteHotkeyVk) + Tr(Str::MiniHotkeyMusic);
     }
     if (mic) {
         if (!text.empty()) text += L"  \xB7  ";
-        text += FormatHotkeyText(g_micInputMuteHotkeyModifiers, g_micInputMuteHotkeyVk) + L" mic";
+        text += FormatHotkeyText(g_micInputMuteHotkeyModifiers, g_micInputMuteHotkeyVk) + Tr(Str::MiniHotkeyMic);
     }
     return text;
 }
@@ -3139,7 +3149,7 @@ void SyncMiniFromMain() {
     InvalidateRect(mini, &g_rcMiniGainText, FALSE);
     std::wstring src = GetComboSelectedText(GetDlgItem(main, IDC_SOURCE));
     if (src.empty()) {
-        src = L"Choose source";
+        src = Tr(Str::MiniChooseSource);
     }
     SetWindowTextW(GetDlgItem(mini, IDC_MINI_SOURCE), src.c_str());
     InvalidateRect(GetDlgItem(mini, IDC_MINI_SOURCE), nullptr, FALSE);
@@ -3187,7 +3197,7 @@ void PaintMiniWindow(HDC dc, const RECT& client) {
 
     DrawRoundRect(dc, g_rcMiniPanel, S(12), FilledBordered(g_theme.card, g_theme.border));
     SetTextColor(dc, g_theme.muted);
-    DrawTextW(dc, L"Music volume", -1, &g_rcMiniGainText, DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+    DrawTextW(dc, Tr(Str::RowVolume), -1, &g_rcMiniGainText, DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
     HWND main = g_hwnd.load(std::memory_order_acquire);
     if (main) {
         wchar_t gainText[32]{};
@@ -3197,9 +3207,9 @@ void PaintMiniWindow(HDC dc, const RECT& client) {
     }
     SetTextColor(dc, g_theme.muted);
     RECT ml{ g_rcMiniPanel.left + S(14), g_rcMiniMusicMeter.top - S(5), g_rcMiniMusicMeter.left - S(6), g_rcMiniMusicMeter.bottom + S(5) };
-    DrawTextW(dc, L"Music", -1, &ml, DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+    DrawTextW(dc, Tr(Str::MiniMusic), -1, &ml, DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
     RECT cl{ g_rcMiniPanel.left + S(14), g_rcMiniMicMeter.top - S(5), g_rcMiniMicMeter.left - S(6), g_rcMiniMicMeter.bottom + S(5) };
-    DrawTextW(dc, L"Mic", -1, &cl, DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
+    DrawTextW(dc, Tr(Str::MiniMic), -1, &cl, DT_SINGLELINE | DT_LEFT | DT_VCENTER | DT_NOPREFIX);
     DrawSegmentMeter(dc, g_rcMiniMusicMeter, std::max(0, g_miniMusicLit));
     DrawSegmentMeter(dc, g_rcMiniMicMeter, std::max(0, g_miniMicLit));
 
@@ -3236,7 +3246,7 @@ void DrawMiniPowerButton(const DRAWITEMSTRUCT* dis) {
     SetBkMode(dis->hDC, TRANSPARENT);
     SetTextColor(dis->hDC, fg);
     HGDIOBJ oldFont = SelectObject(dis->hDC, g_fontButton ? g_fontButton : g_fontBody);
-    DrawTextW(dis->hDC, on ? L"LIVE" : L"OFF", -1, &textRc, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+    DrawTextW(dis->hDC, Tr(on ? Str::MiniLive : Str::MiniOff), -1, &textRc, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
     SelectObject(dis->hDC, oldFont);
 }
 
@@ -3303,7 +3313,7 @@ void DrawMiniMuteButton(const DRAWITEMSTRUCT* dis, bool mic) {
         InflateRect(&ring, -S(3), -S(3));
         DrawRoundRect(dis->hDC, ring, S(8), Outline(g_theme.text, static_cast<float>(std::max(1, S(1)))));
     }
-    const wchar_t* label = mic ? (muted ? L"Mic muted" : L"Mute mic") : (muted ? L"Music muted" : L"Mute music");
+    const wchar_t* label = Tr(mic ? (muted ? Str::MicMuted : Str::MuteMic) : (muted ? Str::MusicMuted : Str::MuteMusic));
     const Glyph glyph = mic ? (muted ? Glyph::MicOff : Glyph::Mic) : Glyph::Music;
     HGDIOBJ oldFont = SelectObject(dis->hDC, g_fontButton ? g_fontButton : g_fontBody);
     SIZE ts{};
@@ -3359,15 +3369,15 @@ LRESULT CALLBACK MiniWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, 276, 14, 30, 30, IDC_MINI_EXPAND);
         make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, 312, 14, 30, 30, IDC_MINI_CLOSE);
         make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, 114, 58, 132, 132, IDC_MINI_POWER);
-        make(L"BUTTON", L"Choose source", WS_TABSTOP | BS_OWNERDRAW, 40, 202, 280, 30, IDC_MINI_SOURCE);
+        make(L"BUTTON", Tr(Str::MiniChooseSource), WS_TABSTOP | BS_OWNERDRAW, 40, 202, 280, 30, IDC_MINI_SOURCE);
         g_rcMiniPanel = { S(18), S(248), S(342), S(370) };
         g_rcMiniGainText = { S(32), S(258), S(328), S(278) };
         HWND gain = make(TRACKBAR_CLASSW, L"", WS_TABSTOP, 26, 280, 308, 28, IDC_MINI_GAIN);
         SendMessageW(gain, TBM_SETRANGE, TRUE, MAKELONG(0, kMusicGainSliderMax));
         SendMessageW(gain, TBM_SETPAGESIZE, 0, 10);
         SendMessageW(gain, TBM_SETLINESIZE, 0, 1);
-        g_rcMiniMusicMeter = { S(78), S(318), S(328), S(326) };
-        g_rcMiniMicMeter = { S(78), S(342), S(328), S(350) };
+        g_rcMiniMusicMeter = { S(100), S(318), S(328), S(326) };
+        g_rcMiniMicMeter = { S(100), S(342), S(328), S(350) };
         make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, 18, 386, 157, 48, IDC_MINI_MUTE_MUSIC);
         make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, 185, 386, 157, 48, IDC_MINI_MUTE_MIC);
         g_rcMiniHint = { S(18), S(444), S(342), S(466) };
@@ -3578,6 +3588,87 @@ void EnterMiniMode(HWND main) {
 }
 
 // ---------------------------------------------------------------------------------------
+// Language
+// ---------------------------------------------------------------------------------------
+
+void PopulateLanguageCombo(HWND hwnd) {
+    HWND combo = GetDlgItem(hwnd, IDC_LANGUAGE);
+    if (!combo) {
+        return;
+    }
+    const auto& langs = I18nLanguages();
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    // First entry: "Automatic (<language TeamSpeak/Windows resolves to>)".
+    const std::string autoCode = I18nAutoCode();
+    std::wstring autoName;
+    for (const auto& l : langs) {
+        if (autoCode == l.code) {
+            autoName = l.nativeName;
+        }
+    }
+    const std::wstring autoLabel = std::wstring(Tr(Str::LanguageAuto)) + (autoName.empty() ? L"" : L" (" + autoName + L")");
+    LRESULT idx = SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(autoLabel.c_str()));
+    SendMessageW(combo, CB_SETITEMDATA, static_cast<WPARAM>(idx), static_cast<LPARAM>(-1));
+    int selected = 0;
+    for (size_t i = 0; i < langs.size(); ++i) {
+        idx = SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(langs[i].nativeName));
+        SendMessageW(combo, CB_SETITEMDATA, static_cast<WPARAM>(idx), static_cast<LPARAM>(i));
+        if (g_uiLanguage == langs[i].code) {
+            selected = static_cast<int>(idx);
+        }
+    }
+    SendMessageW(combo, CB_SETCURSEL, static_cast<WPARAM>(selected), 0);
+}
+
+// Re-labels every control and repaints both windows in the active language.
+void ApplyLanguageToUi(HWND hwnd) {
+    const Str nav[kPageCount] = { Str::NavSource, Str::NavMix, Str::NavHotkeys, Str::NavAppearance, Str::NavDiagnostics };
+    for (int i = 0; i < kPageCount; ++i) {
+        SetWindowTextW(GetDlgItem(hwnd, IDC_NAV_FIRST + i), Tr(nav[i]));
+    }
+    const std::pair<int, Str> labels[] = {
+        { IDC_OPEN_MINI, Str::MiniModeButton }, { IDC_RESCAN, Str::Refresh }, { IDC_SAVE, Str::Restart },
+        { IDC_MUTE, Str::MuteMusic }, { IDC_MIC_INPUT_MUTE, Str::MuteMic },
+        { IDC_MUTE_HOTKEY_SET, Str::HotkeySet }, { IDC_MIC_INPUT_HOTKEY_SET, Str::HotkeySet },
+        { IDC_THEME_SYSTEM, Str::ThemeSystem }, { IDC_THEME_LIGHT, Str::ThemeLight }, { IDC_THEME_DARK, Str::ThemeDark },
+    };
+    for (const auto& [id, str] : labels) {
+        SetWindowTextW(GetDlgItem(hwnd, id), Tr(str));
+    }
+    UpdateMonitorButton(hwnd);
+    if (!IsCapturingHotkey()) {
+        UpdateHotkeyLabels(hwnd);
+    }
+    // Force the periodic texts to be rewritten on the next status tick.
+    g_lastMusicMeterText.clear();
+    g_lastMicMeterText.clear();
+    g_lastMusicClipEvents = std::numeric_limits<uint64_t>::max();
+    g_lastMicClipEvents = std::numeric_limits<uint64_t>::max();
+    g_windowTitleStateValid = false;
+    g_statusTitle.clear();
+
+    PopulateCombos(hwnd);
+    LoadSettings(hwnd);
+    PopulateLanguageCombo(hwnd);
+    UpdateStatus(hwnd);
+    RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+    if (g_miniHwnd) {
+        SyncMiniFromMain();
+        RedrawWindow(g_miniHwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+    }
+}
+
+void SetUiLanguage(HWND hwnd, const std::string& code) {
+    if (code == g_uiLanguage) {
+        return;
+    }
+    g_uiLanguage = code;
+    I18nApply(g_uiLanguage);
+    ApplyLiveSettings(hwnd, false);
+    ApplyLanguageToUi(hwnd);
+}
+
+// ---------------------------------------------------------------------------------------
 // DPI handling (per-monitor v2): rescale fonts, layout and window sizes on DPI changes.
 // ---------------------------------------------------------------------------------------
 
@@ -3725,6 +3816,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             const MicMixSettings initial = MicMixApp::Instance().GetSettings();
             g_themeMode = initial.uiThemeMode;
             g_page = std::clamp(initial.uiLastOpenTab, 0, kPageCount - 1);
+            // Resolve "auto" again on every open so a changed TeamSpeak language is picked up.
+            g_uiLanguage = initial.uiLanguage;
+            I18nApply(g_uiLanguage);
         }
         g_hoverControl = nullptr;
         SelectThemePalette(g_themeMode);
@@ -3748,8 +3842,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_headerStatusBadgeState = HeaderStatusBadgeState::Off;
         g_windowTitleActive = false;
         g_windowTitleStateValid = false;
-        g_statusTitle = L"MicMix is off";
-        g_statusSubtitle = L"Choose a source, then switch MicMix on";
+        g_statusTitle = Tr(Str::StatusOff);
+        g_statusSubtitle = Tr(Str::StatusOffHint);
         g_rows.clear();
         g_cards.clear();
         g_pageControls.clear();
@@ -3776,14 +3870,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             cardTop = top;
             lastRow = -1;
         };
-        const auto addRow = [&](int page, int h, const wchar_t* title, const wchar_t* subtitle, int textRight = 0) -> RECT {
+        const auto addRow = [&](int page, int h, Str title, int subtitle, int textRight = 0) -> RECT {
             if (lastRow >= 0) {
                 g_rows[static_cast<size_t>(lastRow)].divider = true;
             }
             RowDef row;
             row.page = page;
             row.rc = { cx0, y, cx1, y + S(h) };
-            row.title = title;
+            row.title = static_cast<int>(title);
             row.subtitle = subtitle;
             row.textRight = textRight > 0 ? textRight : cx1 - S(150);
             g_rows.push_back(row);
@@ -3798,43 +3892,43 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         const auto centerY = [](const RECT& r, int h) { return r.top + ((r.bottom - r.top - h) / 2); };
 
         // Sidebar ------------------------------------------------------------------
-        const wchar_t* navNames[kPageCount] = { L"Source", L"Mix", L"Hotkeys", L"Appearance", L"Diagnostics" };
+        const Str navNames[kPageCount] = { Str::NavSource, Str::NavMix, Str::NavHotkeys, Str::NavAppearance, Str::NavDiagnostics };
         for (int i = 0; i < kPageCount; ++i) {
-            make(L"BUTTON", navNames[i], WS_TABSTOP | BS_OWNERDRAW, S(10), S(72) + (i * S(42)), S(kSidebarWidthPx - 20), S(38), IDC_NAV_FIRST + i, -1);
+            make(L"BUTTON", Tr(navNames[i]), WS_TABSTOP | BS_OWNERDRAW, S(10), S(72) + (i * S(42)), S(kSidebarWidthPx - 20), S(38), IDC_NAV_FIRST + i, -1);
         }
-        make(L"BUTTON", L"Mini mode", WS_TABSTOP | BS_OWNERDRAW, S(14), clientH - S(112), S(kSidebarWidthPx - 28), S(32), IDC_OPEN_MINI, -1);
+        make(L"BUTTON", Tr(Str::MiniModeButton), WS_TABSTOP | BS_OWNERDRAW, S(14), clientH - S(112), S(kSidebarWidthPx - 28), S(32), IDC_OPEN_MINI, -1);
         const std::wstring versionText = Utf8ToWide(std::string("v") + MICMIX_VERSION + "  \xC2\xB7  by dabinuss");
         make(L"STATIC", versionText.c_str(), 0, S(20), clientH - S(64), S(kSidebarWidthPx - 30), S(18), IDC_VERSION, -1);
         make(L"STATIC", L"github.com/dabinuss/MicMix", SS_NOTIFY, S(20), clientH - S(44), S(kSidebarWidthPx - 30), S(18), IDC_REPO_LINK, -1);
 
         // Status card (all pages) ---------------------------------------------------
         g_rcHeaderBadge = { cx0, S(78), cx1, S(150) };
-        make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(110), centerY(g_rcHeaderBadge, S(30)), S(110), S(30), IDC_POWER, -1);
+        make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(140), centerY(g_rcHeaderBadge, S(30)), S(140), S(30), IDC_POWER, -1);
 
         // Source page -----------------------------------------------------------------
         const int fieldX = cx0 + S(250);
         beginCard(S(166));
-        RECT r = addRow(kPageSource, 64, L"Audio source", L"App or output device to mix in", fieldX - S(12));
-        const int refreshW = S(90);
+        RECT r = addRow(kPageSource, 64, Str::RowAudioSource, static_cast<int>(Str::RowAudioSourceSub), fieldX - S(12));
+        const int refreshW = S(110);
         HWND source = make(L"COMBOBOX", L"", WS_VSCROLL | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, fieldX, centerY(r, S(30)), cx1 - pad - refreshW - S(8) - fieldX, S(360), IDC_SOURCE, kPageSource);
         SendMessageW(source, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), S(24));
         SendMessageW(source, CB_SETITEMHEIGHT, 0, S(24));
         SendMessageW(source, CB_SETMINVISIBLE, 14, 0);
-        make(L"BUTTON", L"Refresh", WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - refreshW, centerY(r, S(32)), refreshW, S(32), IDC_RESCAN, kPageSource);
-        r = addRow(kPageSource, 64, L"Microphone", L"Device the music is mixed into", fieldX - S(12));
+        make(L"BUTTON", Tr(Str::Refresh), WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - refreshW, centerY(r, S(32)), refreshW, S(32), IDC_RESCAN, kPageSource);
+        r = addRow(kPageSource, 64, Str::RowMicrophone, static_cast<int>(Str::RowMicrophoneSub), fieldX - S(12));
         HWND mic = make(L"COMBOBOX", L"", WS_VSCROLL | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, fieldX, centerY(r, S(30)), cx1 - pad - fieldX, S(260), IDC_MIC_DEVICE, kPageSource);
         SendMessageW(mic, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), S(24));
         SendMessageW(mic, CB_SETITEMHEIGHT, 0, S(24));
         SendMessageW(mic, CB_SETMINVISIBLE, 12, 0);
-        r = addRow(kPageSource, 64, L"Start with TeamSpeak", L"Enable MicMix automatically when TeamSpeak starts");
+        r = addRow(kPageSource, 64, Str::RowAutostart, static_cast<int>(Str::RowAutostartSub));
         make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(48), centerY(r, S(30)), S(48), S(30), IDC_AUTOSTART, kPageSource);
-        r = addRow(kPageSource, 64, L"Restart source", L"Reconnect the selected source after device changes");
-        make(L"BUTTON", L"Restart", WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(110), centerY(r, S(32)), S(110), S(32), IDC_SAVE, kPageSource);
+        r = addRow(kPageSource, 64, Str::RowRestart, static_cast<int>(Str::RowRestartSub), cx1 - pad - S(130) - S(12));
+        make(L"BUTTON", Tr(Str::Restart), WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(130), centerY(r, S(32)), S(130), S(32), IDC_SAVE, kPageSource);
         endCard(kPageSource);
 
         // Mix page --------------------------------------------------------------------
         beginCard(S(166));
-        r = addRow(kPageMix, 72, L"Music volume", L"Max \x2212" L"2 dB to avoid clipping", fieldX - S(12));
+        r = addRow(kPageMix, 72, Str::RowVolume, static_cast<int>(Str::RowVolumeSub), fieldX - S(12));
         HWND gain = make(TRACKBAR_CLASSW, L"", WS_CLIPSIBLINGS | WS_TABSTOP, fieldX, centerY(r, S(30)), cx1 - pad - S(90) - fieldX, S(30), IDC_GAIN, kPageMix);
         SendMessageW(gain, TBM_SETRANGE, TRUE, MAKELONG(0, kMusicGainSliderMax));
         SendMessageW(gain, TBM_SETPAGESIZE, 0, 10);
@@ -3845,49 +3939,56 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         const int meterX = cx0 + S(200);
         const int meterTextW = S(128);
         const int meterRight = cx1 - pad - meterTextW - S(10);
-        r = addRow(kPageMix, 76, L"Music level", L"Sent level and clipping", meterX - S(12));
+        r = addRow(kPageMix, 76, Str::RowMusicLevel, static_cast<int>(Str::RowMusicLevelSub), meterX - S(12));
         g_rcMeter = { meterX, r.top + S(14), meterRight, r.top + S(40) };
         g_rcMusicClip = { meterX, r.top + S(46), meterRight, r.top + S(58) };
-        make(L"STATIC", L"No signal", SS_ENDELLIPSIS, cx1 - pad - meterTextW, r.top + S(17), meterTextW, S(18), IDC_METER_TEXT, kPageMix);
-        make(L"STATIC", L"CLIP Events: 0", 0, cx1 - pad - meterTextW, r.top + S(44), meterTextW, S(16), IDC_MUSIC_CLIP_EVENTS, kPageMix);
-        r = addRow(kPageMix, 76, L"Mic level", L"Only while connected", meterX - S(12));
+        make(L"STATIC", Tr(Str::NoSignal), SS_ENDELLIPSIS, cx1 - pad - meterTextW, r.top + S(17), meterTextW, S(18), IDC_METER_TEXT, kPageMix);
+        make(L"STATIC", L"", 0, cx1 - pad - meterTextW, r.top + S(44), meterTextW, S(16), IDC_MUSIC_CLIP_EVENTS, kPageMix);
+        r = addRow(kPageMix, 76, Str::RowMicLevel, static_cast<int>(Str::RowMicLevelSub), meterX - S(12));
         g_rcMicMeter = { meterX, r.top + S(14), meterRight, r.top + S(40) };
         g_rcMicClip = { meterX, r.top + S(46), meterRight, r.top + S(58) };
-        make(L"STATIC", L"No signal", SS_ENDELLIPSIS, cx1 - pad - meterTextW, r.top + S(17), meterTextW, S(18), IDC_MIC_METER_TEXT, kPageMix);
-        make(L"STATIC", L"CLIP Events: 0", 0, cx1 - pad - meterTextW, r.top + S(44), meterTextW, S(16), IDC_MIC_CLIP_EVENTS, kPageMix);
-        r = addRow(kPageMix, 64, L"Send music when mic is silent", L"Music keeps sending while you are not speaking");
+        make(L"STATIC", Tr(Str::NoSignal), SS_ENDELLIPSIS, cx1 - pad - meterTextW, r.top + S(17), meterTextW, S(18), IDC_MIC_METER_TEXT, kPageMix);
+        make(L"STATIC", L"", 0, cx1 - pad - meterTextW, r.top + S(44), meterTextW, S(16), IDC_MIC_CLIP_EVENTS, kPageMix);
+        r = addRow(kPageMix, 64, Str::RowForceTx, static_cast<int>(Str::RowForceTxSub));
         make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(48), centerY(r, S(30)), S(48), S(30), IDC_FORCE_TX, kPageMix);
         endCard(kPageMix);
-        make(L"BUTTON", L"Monitor Mix: Off", WS_TABSTOP | BS_OWNERDRAW, cx0, y, S(150), S(32), IDC_MONITOR, kPageMix);
-        make(L"BUTTON", L"Mute mic", WS_TABSTOP | BS_OWNERDRAW, cx1 - S(120), y, S(120), S(32), IDC_MIC_INPUT_MUTE, kPageMix);
-        make(L"BUTTON", L"Mute music", WS_TABSTOP | BS_OWNERDRAW, cx1 - S(120) - S(16) - S(130), y, S(130), S(32), IDC_MUTE, kPageMix);
+        make(L"BUTTON", Tr(Str::MonitorOff), WS_TABSTOP | BS_OWNERDRAW, cx0, y, S(170), S(32), IDC_MONITOR, kPageMix);
+        make(L"BUTTON", Tr(Str::MuteMic), WS_TABSTOP | BS_OWNERDRAW, cx1 - S(160), y, S(160), S(32), IDC_MIC_INPUT_MUTE, kPageMix);
+        make(L"BUTTON", Tr(Str::MuteMusic), WS_TABSTOP | BS_OWNERDRAW, cx1 - S(160) - S(16) - S(170), y, S(170), S(32), IDC_MUTE, kPageMix);
 
         // Hotkeys page ----------------------------------------------------------------
         beginCard(S(166));
-        r = addRow(kPageHotkeys, 64, L"Mute music", nullptr);
-        make(L"STATIC", L"Current: Not set", SS_ENDELLIPSIS, r.left + pad, r.top + S(33), S(380), S(18), IDC_MUTE_HOTKEY_TEXT, kPageHotkeys);
-        make(L"BUTTON", L"Set\x2026", WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(110), centerY(r, S(32)), S(110), S(32), IDC_MUTE_HOTKEY_SET, kPageHotkeys);
-        r = addRow(kPageHotkeys, 64, L"Mute mic input", nullptr);
-        make(L"STATIC", L"Current: Not set", SS_ENDELLIPSIS, r.left + pad, r.top + S(33), S(380), S(18), IDC_MIC_INPUT_HOTKEY_TEXT, kPageHotkeys);
-        make(L"BUTTON", L"Set\x2026", WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(110), centerY(r, S(32)), S(110), S(32), IDC_MIC_INPUT_HOTKEY_SET, kPageHotkeys);
+        r = addRow(kPageHotkeys, 64, Str::MuteMusic, kTextFromControl);
+        make(L"STATIC", L"", SS_ENDELLIPSIS, r.left + pad, r.top + S(33), S(380), S(18), IDC_MUTE_HOTKEY_TEXT, kPageHotkeys);
+        make(L"BUTTON", Tr(Str::HotkeySet), WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(110), centerY(r, S(32)), S(110), S(32), IDC_MUTE_HOTKEY_SET, kPageHotkeys);
+        r = addRow(kPageHotkeys, 64, Str::MuteMic, kTextFromControl);
+        make(L"STATIC", L"", SS_ENDELLIPSIS, r.left + pad, r.top + S(33), S(380), S(18), IDC_MIC_INPUT_HOTKEY_TEXT, kPageHotkeys);
+        make(L"BUTTON", Tr(Str::HotkeySet), WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(110), centerY(r, S(32)), S(110), S(32), IDC_MIC_INPUT_HOTKEY_SET, kPageHotkeys);
         endCard(kPageHotkeys);
 
         // Appearance page -------------------------------------------------------------
         beginCard(S(166));
         const int themeSegW = S(70);
-        r = addRow(kPageAppearance, 72, L"App theme", L"System follows your Windows app mode", cx1 - pad - (themeSegW * 3) - S(12));
+        r = addRow(kPageAppearance, 72, Str::RowTheme, static_cast<int>(Str::RowThemeSub), cx1 - pad - (themeSegW * 3) - S(12));
         const int themeSegH = S(32);
         const int themeSegX = cx1 - pad - (themeSegW * 3);
         const int themeSegY = centerY(r, themeSegH);
         g_rcThemeSegment = { themeSegX, themeSegY, themeSegX + (themeSegW * 3), themeSegY + themeSegH };
-        make(L"BUTTON", L"System", WS_TABSTOP | BS_OWNERDRAW, themeSegX, themeSegY, themeSegW, themeSegH, IDC_THEME_SYSTEM, kPageAppearance);
-        make(L"BUTTON", L"Light", WS_TABSTOP | BS_OWNERDRAW, themeSegX + themeSegW, themeSegY, themeSegW, themeSegH, IDC_THEME_LIGHT, kPageAppearance);
-        make(L"BUTTON", L"Dark", WS_TABSTOP | BS_OWNERDRAW, themeSegX + (themeSegW * 2), themeSegY, themeSegW, themeSegH, IDC_THEME_DARK, kPageAppearance);
+        make(L"BUTTON", Tr(Str::ThemeSystem), WS_TABSTOP | BS_OWNERDRAW, themeSegX, themeSegY, themeSegW, themeSegH, IDC_THEME_SYSTEM, kPageAppearance);
+        make(L"BUTTON", Tr(Str::ThemeLight), WS_TABSTOP | BS_OWNERDRAW, themeSegX + themeSegW, themeSegY, themeSegW, themeSegH, IDC_THEME_LIGHT, kPageAppearance);
+        make(L"BUTTON", Tr(Str::ThemeDark), WS_TABSTOP | BS_OWNERDRAW, themeSegX + (themeSegW * 2), themeSegY, themeSegW, themeSegH, IDC_THEME_DARK, kPageAppearance);
+        const int langW = S(240);
+        r = addRow(kPageAppearance, 72, Str::RowLanguage, static_cast<int>(Str::RowLanguageSub), cx1 - pad - langW - S(12));
+        HWND lang = make(L"COMBOBOX", L"", WS_VSCROLL | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, cx1 - pad - langW, centerY(r, S(30)), langW, S(360), IDC_LANGUAGE, kPageAppearance);
+        SendMessageW(lang, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), S(24));
+        SendMessageW(lang, CB_SETITEMHEIGHT, 0, S(24));
+        SendMessageW(lang, CB_SETMINVISIBLE, 14, 0);
+        PopulateLanguageCombo(hwnd);
         endCard(kPageAppearance);
 
         // Diagnostics page ------------------------------------------------------------
         beginCard(S(166));
-        r = addRow(kPageDiagnostics, 132, L"Live status", nullptr);
+        r = addRow(kPageDiagnostics, 132, Str::RowLiveStatus, kTextFromControl);
         g_rcStatus = { r.left + pad, r.top + S(42), r.right - pad, r.bottom - S(14) };
         endCard(kPageDiagnostics);
 
@@ -3920,7 +4021,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (!mis) {
             return FALSE;
         }
-        if (mis->CtlID == IDC_SOURCE || mis->CtlID == IDC_MIC_DEVICE) {
+        if (mis->CtlID == IDC_SOURCE || mis->CtlID == IDC_MIC_DEVICE || mis->CtlID == IDC_LANGUAGE) {
             mis->itemHeight = static_cast<UINT>(S(24));
             return TRUE;
         }
@@ -3935,7 +4036,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             DrawSourceComboItem(dis);
             return TRUE;
         }
-        if (dis->CtlID == IDC_MIC_DEVICE) {
+        if (dis->CtlID == IDC_MIC_DEVICE || dis->CtlID == IDC_LANGUAGE) {
             DrawPlainComboItem(dis);
             return TRUE;
         }
@@ -3996,7 +4097,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             const uint64_t nextSeq = g_sourceRefreshSeq.fetch_add(1, std::memory_order_acq_rel) + 1ULL;
             g_sourceRefreshInFlight.store(true, std::memory_order_release);
             g_sourceRefreshActiveSeq.store(nextSeq, std::memory_order_release);
-            SetStatusText(hwnd, L"Refreshing source list...");
+            SetStatusText(hwnd, Tr(Str::RefreshingSources));
             if (!StartSourceRefreshWorker(hwnd, nextSeq)) {
                 g_sourceRefreshInFlight.store(false, std::memory_order_release);
                 g_sourceRefreshActiveSeq.store(0, std::memory_order_release);
@@ -4004,7 +4105,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (refreshBtn) {
                     EnableWindow(refreshBtn, TRUE);
                 }
-                SetStatusText(hwnd, L"Refresh failed to start");
+                SetStatusText(hwnd, Tr(Str::RefreshFailed));
             }
             return 0;
         }
@@ -4079,7 +4180,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 IsHotkeyConflict(mods, vk, g_micInputMuteHotkeyModifiers, g_micInputMuteHotkeyVk)) {
                 EndHotkeyCapture(hwnd, false);
                 MessageBeep(MB_ICONWARNING);
-                SetStatusText(hwnd, L"Hotkey conflict: already assigned to Mic Input Mute.");
+                SetStatusText(hwnd, Tr(Str::HotkeyConflictMic));
                 UpdateHotkeyLabels(hwnd);
                 return 0;
             }
@@ -4087,7 +4188,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 IsHotkeyConflict(mods, vk, g_muteHotkeyModifiers, g_muteHotkeyVk)) {
                 EndHotkeyCapture(hwnd, false);
                 MessageBeep(MB_ICONWARNING);
-                SetStatusText(hwnd, L"Hotkey conflict: already assigned to Music Mute.");
+                SetStatusText(hwnd, Tr(Str::HotkeyConflictMusic));
                 UpdateHotkeyLabels(hwnd);
                 return 0;
             }
@@ -4106,7 +4207,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_ACTIVATE:
         if (LOWORD(wParam) == WA_INACTIVE && IsCapturingHotkey()) {
             EndHotkeyCapture(hwnd);
-            SetStatusText(hwnd, L"Hotkey capture cancelled.");
+            SetStatusText(hwnd, Tr(Str::HotkeyCancelled));
             return 0;
         }
         return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -4189,6 +4290,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
                 g_lastValidSourceSel = sourceSel;
                 ApplyLiveSettings(hwnd, true);
+                return 0;
+            }
+            break;
+        case IDC_LANGUAGE:
+            if (HIWORD(wParam) == CBN_DROPDOWN || HIWORD(wParam) == CBN_CLOSEUP) {
+                InvalidateRect(reinterpret_cast<HWND>(lParam), nullptr, FALSE);
+                return 0;
+            }
+            if (HIWORD(wParam) == CBN_SELCHANGE) {
+                HWND combo = reinterpret_cast<HWND>(lParam);
+                const int sel = static_cast<int>(SendMessageW(combo, CB_GETCURSEL, 0, 0));
+                const LRESULT data = SendMessageW(combo, CB_GETITEMDATA, static_cast<WPARAM>(sel), 0);
+                const auto& langs = I18nLanguages();
+                const std::string code = (data >= 0 && static_cast<size_t>(data) < langs.size()) ? langs[static_cast<size_t>(data)].code : "auto";
+                SetUiLanguage(hwnd, code);
                 return 0;
             }
             break;

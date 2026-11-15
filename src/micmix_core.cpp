@@ -584,6 +584,15 @@ void SanitizeSettings(MicMixSettings& s) {
         s.uiMiniX = kUiPosUnset;
         s.uiMiniY = kUiPosUnset;
     }
+    // "auto" or a 2-3 letter language code; the UI falls back to "auto" for unknown codes.
+    for (char& c : s.uiLanguage) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    const bool langCode = (s.uiLanguage.size() == 2 || s.uiLanguage.size() == 3) &&
+        std::all_of(s.uiLanguage.begin(), s.uiLanguage.end(), [](char c) { return c >= 'a' && c <= 'z'; });
+    if (s.uiLanguage != "auto" && !langCode) {
+        s.uiLanguage = "auto";
+    }
 
     StripConfigControlChars(s.loopbackDeviceId, 512);
     StripConfigControlChars(s.appProcessName, 128);
@@ -628,7 +637,8 @@ bool IsSameSettings(const MicMixSettings& a, const MicMixSettings& b) {
            a.uiMiniMode == b.uiMiniMode &&
            a.uiMiniPinned == b.uiMiniPinned &&
            a.uiMiniX == b.uiMiniX &&
-           a.uiMiniY == b.uiMiniY;
+           a.uiMiniY == b.uiMiniY &&
+           a.uiLanguage == b.uiLanguage;
 }
 
 bool IsBlockedUiProcess(uint32_t pid, const std::wstring& exeName) {
@@ -1144,6 +1154,7 @@ bool ConfigStore::Load(MicMixSettings& outSettings, std::string& warning) {
     if (auto it = kv.find("ui.mini.pinned"); it != kv.end()) outSettings.uiMiniPinned = ::ParseBool(it->second, outSettings.uiMiniPinned);
     parseInt("ui.mini.x", outSettings.uiMiniX);
     parseInt("ui.mini.y", outSettings.uiMiniY);
+    if (auto it = kv.find("ui.language"); it != kv.end()) outSettings.uiLanguage = it->second;
     if (parseIssue) {
         appendWarning("Config parse issue detected; fallback values were used.");
     }
@@ -1183,6 +1194,7 @@ bool ConfigStore::Save(const MicMixSettings& settings, std::string& error) {
     ss << "ui.theme=" << UiThemeModeToString(safe.uiThemeMode) << "\n";
     ss << "ui.mini.enabled=" << BoolToString(safe.uiMiniMode) << "\n";
     ss << "ui.mini.pinned=" << BoolToString(safe.uiMiniPinned) << "\n";
+    ss << "ui.language=" << safe.uiLanguage << "\n";
     if (safe.uiMiniX != kUiPosUnset && safe.uiMiniY != kUiPosUnset) {
         ss << "ui.mini.x=" << safe.uiMiniX << "\n";
         ss << "ui.mini.y=" << safe.uiMiniY << "\n";

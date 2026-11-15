@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Mini mode remembers its state: if MicMix was closed in mini mode it reopens in mini mode, at the last position and with the same pin state (`ui.mini.*` in the config). A saved position on a disconnected monitor is ignored.
+- Translations: the settings window, mini mode and the TeamSpeak menu entry are available in English, German, French, Spanish, Italian, Portuguese, Dutch, Polish, Russian, Turkish, Czech and Chinese. By default MicMix follows the TeamSpeak client language (`settings.db`), then the Windows display language, then English. The `Appearance` page has a language selector that switches live (`ui.language` in the config).
 - Every CI run attaches the built `.ts3_plugin` as a downloadable artifact (kept 14 days), so changes can be tested in TeamSpeak before merging.
 
 ### Fixed

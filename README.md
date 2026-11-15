@@ -188,6 +188,14 @@ The `Appearance` page has a theme selector:
 
 The choice is stored as `ui.theme=system|light|dark` in the MicMix config.
 
+## Language
+
+MicMix ships with English, German, French, Spanish, Italian, Portuguese, Dutch, Polish, Russian, Turkish,
+Czech and Chinese. With `Language: Automatic` (default) it uses the language of your TeamSpeak 3 client, read
+from `settings.db` in the TeamSpeak config folder; if that is not available or not supported, the Windows
+display language, and otherwise English. Pick a language on the `Appearance` page to override it
+(`ui.language` in the config). Translations live in [`src/i18n.cpp`](./src/i18n.cpp), one row per text.
+
 ## Status
 
 MicMix is in active development. Core mixing, source selection, UI controls, hotkey support, and config persistence are already implemented.
