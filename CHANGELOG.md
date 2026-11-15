@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-15
+
 ### Added
 
 - Mini mode remembers its state: if MicMix was closed in mini mode it reopens in mini mode, at the last position and with the same pin state (`ui.mini.*` in the config). A saved position on a disconnected monitor is ignored.
