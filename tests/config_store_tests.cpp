@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "i18n.h"
+#include "update_check.h"
 #include "micmix_core.h"
 
 namespace {
@@ -284,6 +285,28 @@ bool TestI18nLanguageDetection() {
     return pass;
 }
 
+bool TestUpdateCheckHelpers() {
+    bool pass = true;
+    pass &= Expect(IsNewerVersion("v1.5.0", "1.4.0"), "v1.5.0 should be newer than 1.4.0");
+    pass &= Expect(IsNewerVersion("1.4.10", "1.4.9"), "1.4.10 should be newer than 1.4.9 (numeric compare)");
+    pass &= Expect(IsNewerVersion("2.0.0", "1.99.99"), "Major bump should be newer");
+    pass &= Expect(!IsNewerVersion("v1.4.0", "1.4.0"), "Same version should not be newer");
+    pass &= Expect(!IsNewerVersion("1.3.9", "1.4.0"), "Older version should not be newer");
+    pass &= Expect(!IsNewerVersion("v1.5.0-beta", "1.4.0"), "Malformed versions should be ignored");
+
+    std::string tag;
+    const std::string release =
+        "{\"url\":\"https://api.github.com/repos/o/r/releases/1\",\"html_url\":\"https://github.com/o/r/releases/tag/v1.5.0\","
+        "\"id\":1,\"tag_name\": \"v1.5.0\",\"name\":\"MicMix 1.5.0\",\"author\":{\"html_url\":\"https://github.com/o\"}}";
+    pass &= Expect(ParseReleaseTag(release, tag) && tag == "v1.5.0", "tag_name should be parsed from a release object");
+    pass &= Expect(!ParseReleaseTag("{\"message\":\"Not Found\"}", tag), "Error responses should not yield a tag");
+    pass &= Expect(!ParseReleaseTag("{\"tag_name\":\"<script>\"}", tag), "Non-version tags should be rejected");
+
+    MicMixSettings s{};
+    pass &= Expect(s.uiUpdateCheck, "Update check should be on by default");
+    return pass;
+}
+
 } // namespace
 
 int main() {
@@ -307,6 +330,9 @@ int main() {
         ++failed;
     }
     if (!TestI18nLanguageDetection()) {
+        ++failed;
+    }
+    if (!TestUpdateCheckHelpers()) {
         ++failed;
     }
     CleanupTempDirs();

@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 set(MICMIX_VERSION_OVERRIDE "" CACHE STRING "Explicit MicMix version override (e.g. 1.2.9)")
+set(MICMIX_UPDATE_REPO "DatMayo/MicMix" CACHE STRING "GitHub repository (owner/name) checked for new releases")
 
 set(MICMIX_VERSION "1.4.0")
 if(MICMIX_VERSION_OVERRIDE)
@@ -59,6 +60,7 @@ add_library(micmix SHARED
   src/ui_controls.cpp
   src/mini_window.cpp
   src/i18n.cpp
+  src/update_check.cpp
   resources/micmix.rc
 )
 
@@ -109,6 +111,7 @@ target_link_libraries(micmix PRIVATE
   shell32
   uxtheme
   gdiplus
+  winhttp
 )
 
 set_target_properties(micmix PROPERTIES
@@ -128,6 +131,7 @@ if(MICMIX_BUILD_TESTS)
     src/ui_controls.cpp
     src/mini_window.cpp
     src/i18n.cpp
+    src/update_check.cpp
   )
 
   target_include_directories(micmix_config_store_tests PRIVATE
@@ -166,6 +170,7 @@ if(MICMIX_BUILD_TESTS)
     shell32
     uxtheme
     gdiplus
+    winhttp
   )
 
   add_test(NAME micmix_config_store_tests COMMAND micmix_config_store_tests)

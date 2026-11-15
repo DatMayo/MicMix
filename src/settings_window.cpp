@@ -55,6 +55,7 @@ std::unordered_map<uint32_t, HICON> g_appIconsByPid;
 HICON g_loopbackFallbackIcon = nullptr;
 HICON g_appFallbackIcon = nullptr;
 bool g_ownerAutostartChecked = false;
+bool g_ownerUpdateCheckChecked = true;
 bool g_ownerForceTxChecked = false;
 bool g_ownerMicInputMuteChecked = false;
 bool g_ownerMuteChecked = false;
@@ -134,7 +135,7 @@ bool g_statusTimerIdle = false;
 constexpr UINT kStatusTimerIdleMs = 500;
 int g_miniPosY = kUiPosUnset;
 bool IsOwnerCheckboxControlId(int id) {
-    return id == IDC_AUTOSTART || id == IDC_FORCE_TX || id == IDC_MIC_INPUT_MUTE || id == IDC_MUTE;
+    return id == IDC_AUTOSTART || id == IDC_FORCE_TX || id == IDC_MIC_INPUT_MUTE || id == IDC_MUTE || id == IDC_UPDATE_CHECK;
 }
 
 bool IsThemeSegmentControlId(int id) {
@@ -185,6 +186,8 @@ bool IsHandCursorControlId(int id) {
     case IDC_POWER:
     case IDC_OPEN_MINI:
     case IDC_LANGUAGE:
+    case IDC_UPDATE:
+    case IDC_UPDATE_CHECK:
     case IDC_MINI_POWER:
     case IDC_MINI_SOURCE:
     case IDC_MINI_MUTE_MUSIC:
@@ -214,6 +217,7 @@ bool IsPointOverGainThumb(HWND gainHwnd, const POINT& screenPt) {
 bool GetOwnerCheckboxValue(int id) {
     switch (id) {
     case IDC_AUTOSTART: return g_ownerAutostartChecked;
+    case IDC_UPDATE_CHECK: return g_ownerUpdateCheckChecked;
     case IDC_FORCE_TX: return g_ownerForceTxChecked;
     case IDC_MIC_INPUT_MUTE: return g_ownerMicInputMuteChecked;
     case IDC_MUTE: return g_ownerMuteChecked;
@@ -224,6 +228,7 @@ bool GetOwnerCheckboxValue(int id) {
 void SetOwnerCheckboxValue(int id, bool value) {
     switch (id) {
     case IDC_AUTOSTART: g_ownerAutostartChecked = value; break;
+    case IDC_UPDATE_CHECK: g_ownerUpdateCheckChecked = value; break;
     case IDC_FORCE_TX: g_ownerForceTxChecked = value; break;
     case IDC_MIC_INPUT_MUTE: g_ownerMicInputMuteChecked = value; break;
     case IDC_MUTE: g_ownerMuteChecked = value; break;
@@ -1024,6 +1029,8 @@ void LoadSettings(HWND hwnd) {
     SetOwnerCheckboxValue(IDC_MIC_INPUT_MUTE, s.micInputMuted);
     SetOwnerCheckboxValue(IDC_MUTE, s.musicMuted);
     SetOwnerCheckboxValue(IDC_AUTOSTART, s.autostartEnabled);
+    SetOwnerCheckboxValue(IDC_UPDATE_CHECK, s.uiUpdateCheck);
+    InvalidateRect(GetDlgItem(hwnd, IDC_UPDATE_CHECK), nullptr, TRUE);
     InvalidateRect(GetDlgItem(hwnd, IDC_FORCE_TX), nullptr, TRUE);
     InvalidateRect(GetDlgItem(hwnd, IDC_MIC_INPUT_MUTE), nullptr, TRUE);
     InvalidateRect(GetDlgItem(hwnd, IDC_MUTE), nullptr, TRUE);
@@ -1071,6 +1078,7 @@ MicMixSettings CollectSettings(HWND hwnd) {
     s.micInputMuted = GetOwnerCheckboxValue(IDC_MIC_INPUT_MUTE);
     s.musicMuted = GetOwnerCheckboxValue(IDC_MUTE);
     s.autostartEnabled = GetOwnerCheckboxValue(IDC_AUTOSTART);
+    s.uiUpdateCheck = GetOwnerCheckboxValue(IDC_UPDATE_CHECK);
     s.muteHotkeyModifiers = static_cast<int>(g_muteHotkeyModifiers);
     s.muteHotkeyVk = static_cast<int>(g_muteHotkeyVk);
     s.micInputMuteHotkeyModifiers = static_cast<int>(g_micInputMuteHotkeyModifiers);
@@ -1460,6 +1468,105 @@ void UpdateStatusCardText(HWND hwnd, const SourceStatus& st) {
 }
 
 // ---------------------------------------------------------------------------------------
+// Update check
+// ---------------------------------------------------------------------------------------
+
+std::mutex g_updateMutex;
+std::thread g_updateThread;
+UpdateInfo g_updateInfo;
+bool g_updateStarted = false;
+
+void PublishUpdateInfo(const UpdateInfo& info) {
+    {
+        std::lock_guard<std::mutex> lock(g_updateMutex);
+        g_updateInfo = info;
+    }
+    HWND hwnd = g_hwnd.load(std::memory_order_acquire);
+    if (hwnd && info.available) {
+        PostMessageW(hwnd, kMsgUpdateFound, 0, 0);
+    }
+}
+
+UpdateInfo GetUpdateInfo() {
+    std::lock_guard<std::mutex> lock(g_updateMutex);
+    return g_updateInfo;
+}
+
+// Runs at most once per TeamSpeak session, in the background.
+void StartUpdateCheck() {
+    std::lock_guard<std::mutex> lock(g_updateMutex);
+    if (g_updateStarted) {
+        return;
+    }
+    g_updateStarted = true;
+    try {
+        g_updateThread = std::thread([] {
+            PublishUpdateInfo(CheckForUpdate(MICMIX_VERSION, MICMIX_UPDATE_REPO));
+        });
+    } catch (...) {
+        LogError("update check thread start failed");
+    }
+}
+
+void StopUpdateCheck() {
+    CancelUpdateCheck();
+    std::thread worker;
+    {
+        std::lock_guard<std::mutex> lock(g_updateMutex);
+        worker = std::move(g_updateThread);
+    }
+    if (worker.joinable()) {
+        worker.join();
+    }
+}
+
+void ShowUpdateHint(HWND hwnd) {
+    HWND button = GetDlgItem(hwnd, IDC_UPDATE);
+    if (!button) {
+        return;
+    }
+    const UpdateInfo info = GetUpdateInfo();
+    const bool show = info.available && GetOwnerCheckboxValue(IDC_UPDATE_CHECK);
+    ShowWindow(button, show ? SW_SHOWNA : SW_HIDE);
+    InvalidateRect(button, nullptr, FALSE);
+}
+
+void DrawUpdateButton(const DRAWITEMSTRUCT* dis) {
+    RECT rc = dis->rcItem;
+    FillSolidRect(dis->hDC, rc, g_theme.bg);
+    const bool hover = dis->hwndItem == g_hoverControl;
+    const bool pressed = (dis->itemState & ODS_SELECTED) != 0;
+    COLORREF fill = g_theme.accentSoft;
+    if (pressed) {
+        fill = MixColor(g_theme.accentSoft, g_theme.accent, 0.25f);
+    } else if (hover) {
+        fill = MixColor(g_theme.accentSoft, g_theme.accent, 0.12f);
+    }
+    DrawRoundRect(dis->hDC, rc, S(6), FilledBordered(fill, g_theme.accent));
+    const COLORREF fg = g_theme.dark ? g_theme.accentHover : g_theme.accent;
+    RECT icon{ rc.left + S(10), rc.top + ((rc.bottom - rc.top - S(16)) / 2), rc.left + S(26), rc.top + ((rc.bottom - rc.top - S(16)) / 2) + S(16) };
+    DrawGlyph(dis->hDC, Glyph::Download, icon, fg, 2.0f);
+
+    const UpdateInfo info = GetUpdateInfo();
+    wchar_t text[96]{};
+    swprintf_s(text, Tr(Str::UpdateAvailable), Utf8ToWide(info.version).c_str());
+    RECT textRc{ icon.right + S(8), rc.top, rc.right - S(6), rc.bottom };
+    SetBkMode(dis->hDC, TRANSPARENT);
+    SetTextColor(dis->hDC, fg);
+    HGDIOBJ oldFont = SelectObject(dis->hDC, g_fontButton ? g_fontButton : g_fontBody);
+    DrawTextW(dis->hDC, text, -1, &textRc, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(dis->hDC, oldFont);
+}
+
+void OpenUpdatePage(HWND hwnd) {
+    const UpdateInfo info = GetUpdateInfo();
+    // The URL is built from the configured repository and a validated tag.
+    if (info.available && info.url.rfind("https://github.com/", 0) == 0) {
+        ShellExecuteW(hwnd, L"open", Utf8ToWide(info.url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+}
+
+// ---------------------------------------------------------------------------------------
 // Language
 // ---------------------------------------------------------------------------------------
 
@@ -1769,6 +1876,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             make(L"BUTTON", Tr(navNames[i]), WS_TABSTOP | BS_OWNERDRAW, S(10), S(72) + (i * S(42)), S(kSidebarWidthPx - 20), S(38), IDC_NAV_FIRST + i, -1);
         }
         make(L"BUTTON", Tr(Str::MiniModeButton), WS_TABSTOP | BS_OWNERDRAW, S(14), clientH - S(112), S(kSidebarWidthPx - 28), S(32), IDC_OPEN_MINI, -1);
+        // Shown by ShowUpdateHint() once a newer release is known.
+        HWND update = make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, S(14), clientH - S(158), S(kSidebarWidthPx - 28), S(36), IDC_UPDATE, -1);
+        ShowWindow(update, SW_HIDE);
         const std::wstring versionText = Utf8ToWide(std::string("v") + MICMIX_VERSION + "  \xC2\xB7  by dabinuss");
         make(L"STATIC", versionText.c_str(), 0, S(20), clientH - S(64), S(kSidebarWidthPx - 30), S(18), IDC_VERSION, -1);
         make(L"STATIC", L"github.com/dabinuss/MicMix", SS_NOTIFY, S(20), clientH - S(44), S(kSidebarWidthPx - 30), S(18), IDC_REPO_LINK, -1);
@@ -1856,6 +1966,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(lang, CB_SETITEMHEIGHT, 0, S(24));
         SendMessageW(lang, CB_SETMINVISIBLE, 14, 0);
         PopulateLanguageCombo(hwnd);
+        r = addRow(kPageAppearance, 64, Str::RowUpdateCheck, static_cast<int>(Str::RowUpdateCheckSub));
+        make(L"BUTTON", L"", WS_TABSTOP | BS_OWNERDRAW, cx1 - pad - S(48), centerY(r, S(30)), S(48), S(30), IDC_UPDATE_CHECK, kPageAppearance);
         endCard(kPageAppearance);
 
         // Diagnostics page ------------------------------------------------------------
@@ -1871,6 +1983,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         ShowPage(hwnd, g_page, false);
         PopulateCombos(hwnd);
         LoadSettings(hwnd);
+        ShowUpdateHint(hwnd);
         RequestSourceRefresh(hwnd, true);
         UpdateMonitorButton(hwnd);
         SendMessageW(hwnd, WM_CHANGEUISTATE, MAKEWPARAM(UIS_SET, UISF_HIDEFOCUS), 0);
@@ -1920,8 +2033,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             DrawThemeSegment(hwnd, dis);
             return TRUE;
         }
-        if (dis->CtlID == IDC_AUTOSTART || dis->CtlID == IDC_FORCE_TX ||
-            dis->CtlID == IDC_MIC_INPUT_MUTE || dis->CtlID == IDC_MUTE) {
+        if (dis->CtlID == IDC_UPDATE) {
+            DrawUpdateButton(dis);
+            return TRUE;
+        }
+        if (IsOwnerCheckboxControlId(static_cast<int>(dis->CtlID))) {
             DrawOwnerCheckbox(dis);
             return TRUE;
         }
@@ -1991,6 +2107,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
     case WM_DPICHANGED:
         ApplyDpi(hwnd, HIWORD(wParam), reinterpret_cast<const RECT*>(lParam));
+        return 0;
+    case kMsgUpdateFound:
+        ShowUpdateHint(hwnd);
         return 0;
     case kMsgShowUi:
         if (g_miniMode.load(std::memory_order_acquire) && g_miniHwnd) {
@@ -2135,6 +2254,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
             break;
+        case IDC_UPDATE:
+            if (HIWORD(wParam) == BN_CLICKED) {
+                OpenUpdatePage(hwnd);
+                return 0;
+            }
+            break;
         case IDC_SAVE:
             ApplyLiveSettings(hwnd, false, true);
             MicMixApp::Instance().StopSource();
@@ -2208,6 +2333,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         case IDC_MIC_INPUT_MUTE:
         case IDC_MUTE:
         case IDC_AUTOSTART:
+        case IDC_UPDATE_CHECK:
             if (HIWORD(wParam) == BN_CLICKED) {
                 const int id = LOWORD(wParam);
                 if ((id == IDC_MIC_INPUT_MUTE || id == IDC_MUTE) &&
@@ -2219,6 +2345,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     InvalidateRect(GetDlgItem(hwnd, id), nullptr, TRUE);
                 }
                 ApplyLiveSettings(hwnd, false);
+                if (id == IDC_UPDATE_CHECK) {
+                    if (GetOwnerCheckboxValue(IDC_UPDATE_CHECK)) {
+                        StartUpdateCheck();
+                    }
+                    ShowUpdateHint(hwnd);
+                }
                 return 0;
             }
             break;
@@ -2467,6 +2599,9 @@ void SettingsWindowController::Open() {
         return;
     }
     g_running.store(true, std::memory_order_release);
+    if (MicMixApp::Instance().GetSettings().uiUpdateCheck) {
+        StartUpdateCheck();
+    }
     try {
         g_thread = std::thread(WindowThreadMain);
     } catch (const std::exception& ex) {
@@ -2480,6 +2615,7 @@ void SettingsWindowController::Open() {
 
 void SettingsWindowController::Close() {
     std::lock_guard<std::mutex> lock(g_mutex);
+    StopUpdateCheck();
     if (MicMixApp::Instance().IsMonitorEnabled()) {
         MicMixApp::Instance().SetMonitorEnabled(false);
     }
