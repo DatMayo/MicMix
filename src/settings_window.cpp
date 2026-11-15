@@ -129,6 +129,9 @@ std::wstring g_lastStatusText;
 
 int g_miniPosX = kUiPosUnset;
 std::string g_uiLanguage = "auto";
+BackBuffer g_mainBuffer;
+bool g_statusTimerIdle = false;
+constexpr UINT kStatusTimerIdleMs = 500;
 int g_miniPosY = kUiPosUnset;
 bool IsOwnerCheckboxControlId(int id) {
     return id == IDC_AUTOSTART || id == IDC_FORCE_TX || id == IDC_MIC_INPUT_MUTE || id == IDC_MUTE;
@@ -1281,42 +1284,57 @@ void ShowPage(HWND hwnd, int page, bool persist) {
     }
 }
 
-void PaintMainWindow(HDC dc, const RECT& clientRc) {
-    FillRect(dc, &clientRc, g_brushBg);
+// Paints the window scene. Only elements that touch `paintRc` are drawn: meter updates
+// invalidate small rectangles many times per second, and the DC is clipped to them.
+void PaintMainWindow(HDC dc, const RECT& clientRc, const RECT& paintRc) {
+    const auto touches = [&paintRc](const RECT& r) {
+        RECT overlap{};
+        return IntersectRect(&overlap, &r, &paintRc) != FALSE;
+    };
+    FillRect(dc, &paintRc, g_brushBg);
 
     // Content panel with rounded top-left corner, like the Windows 11 settings app.
     RECT panel{ S(kSidebarWidthPx), S(10), clientRc.right + S(20), clientRc.bottom + S(20) };
-    DrawRoundRect(dc, panel, S(8), FilledBordered(g_theme.content, g_theme.border));
+    if (touches(panel)) {
+        DrawRoundRect(dc, panel, S(8), FilledBordered(g_theme.content, g_theme.border));
+    }
 
-    // Brand
-    RECT logo{ S(20), S(22), S(48), S(50) };
-    DrawRoundRect(dc, logo, S(8), Filled(g_theme.accent));
-    RECT logoIcon = logo;
-    InflateRect(&logoIcon, -S(6), -S(6));
-    DrawGlyph(dc, Glyph::Mic, logoIcon, g_theme.accentText, 2.0f);
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, g_theme.text);
     HGDIOBJ oldFont = SelectObject(dc, g_fontBrand ? g_fontBrand : g_fontBody);
+
+    // Brand
+    RECT logo{ S(20), S(22), S(48), S(50) };
     RECT brandRc{ S(58), S(22), S(kSidebarWidthPx - 10), S(50) };
-    DrawTextW(dc, L"MicMix", -1, &brandRc, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    if (touches(logo) || touches(brandRc)) {
+        DrawRoundRect(dc, logo, S(8), Filled(g_theme.accent));
+        RECT logoIcon = logo;
+        InflateRect(&logoIcon, -S(6), -S(6));
+        DrawGlyph(dc, Glyph::Mic, logoIcon, g_theme.accentText, 2.0f);
+        DrawTextW(dc, L"MicMix", -1, &brandRc, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    }
 
     // Page title
     const int cx0 = S(kContentLeftPx);
     const int cx1 = S(kContentRightPx);
-    SelectObject(dc, g_fontPageTitle ? g_fontPageTitle : g_fontBody);
     RECT titleRc{ cx0, S(24), cx1, S(66) };
-    DrawTextW(dc, PageTitle(g_page), -1, &titleRc, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    if (touches(titleRc)) {
+        SelectObject(dc, g_fontPageTitle ? g_fontPageTitle : g_fontBody);
+        DrawTextW(dc, PageTitle(g_page), -1, &titleRc, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    }
 
-    DrawStatusCard(dc);
+    if (touches(g_rcHeaderBadge)) {
+        DrawStatusCard(dc);
+    }
 
     for (const auto& card : g_cards) {
-        if (card.page == g_page) {
+        if (card.page == g_page && touches(card.rc)) {
             DrawCard(dc, card.rc);
         }
     }
     const int pad = S(kRowPadPx);
     for (const auto& row : g_rows) {
-        if (row.page != g_page) {
+        if (row.page != g_page || !touches(row.rc)) {
             continue;
         }
         const bool hasSubtitle = row.subtitle != kNoText;
@@ -1340,11 +1358,19 @@ void PaintMainWindow(HDC dc, const RECT& clientRc) {
     }
 
     if (g_page == kPageMix) {
-        DrawLevelMeter(dc, g_rcMeter, IsMusicMeterActive(g_lastTelemetry), g_meterVisualDb, g_meterHoldDb);
-        DrawLevelMeter(dc, g_rcMicMeter, g_lastTelemetry.micRmsDbfs > -119.0f, g_micMeterVisualDb, g_micMeterHoldDb);
+        if (touches(g_rcMeter)) {
+            DrawLevelMeter(dc, g_rcMeter, IsMusicMeterActive(g_lastTelemetry), g_meterVisualDb, g_meterHoldDb);
+        }
+        if (touches(g_rcMicMeter)) {
+            DrawLevelMeter(dc, g_rcMicMeter, g_lastTelemetry.micRmsDbfs > -119.0f, g_micMeterVisualDb, g_micMeterHoldDb);
+        }
         const float shownMusicPeak = (g_lastTelemetry.musicSendPeakDbfs > -119.0f) ? g_lastTelemetry.musicSendPeakDbfs : g_lastTelemetry.musicPeakDbfs;
-        DrawClipStrip(dc, g_rcMusicClip, ClipDangerUnitFromDb(shownMusicPeak), g_lastTelemetry.sourceClipRecent);
-        DrawClipStrip(dc, g_rcMicClip, ClipDangerUnitFromDb(g_lastTelemetry.micPeakDbfs), g_lastTelemetry.micClipRecent);
+        if (touches(g_rcMusicClip)) {
+            DrawClipStrip(dc, g_rcMusicClip, ClipDangerUnitFromDb(shownMusicPeak), g_lastTelemetry.sourceClipRecent);
+        }
+        if (touches(g_rcMicClip)) {
+            DrawClipStrip(dc, g_rcMicClip, ClipDangerUnitFromDb(g_lastTelemetry.micPeakDbfs), g_lastTelemetry.micClipRecent);
+        }
     } else if (g_page == kPageHotkeys) {
         for (const auto& card : g_cards) {
             if (card.page == kPageHotkeys) {
@@ -1981,6 +2007,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
         if (wParam == kTimerStatusUpdate) {
+            // Nothing on screen (minimized or hidden): poll slowly and skip all UI work.
+            const bool mainShown = IsWindowVisible(hwnd) != FALSE && IsIconic(hwnd) == FALSE;
+            const bool miniShown = g_miniHwnd && IsWindowVisible(g_miniHwnd) != FALSE && IsIconic(g_miniHwnd) == FALSE;
+            if (!mainShown && !miniShown) {
+                if (!g_statusTimerIdle) {
+                    g_statusTimerIdle = true;
+                    SetTimer(hwnd, kTimerStatusUpdate, kStatusTimerIdleMs, nullptr);
+                }
+                return 0;
+            }
+            if (g_statusTimerIdle) {
+                g_statusTimerIdle = false;
+                SetTimer(hwnd, kTimerStatusUpdate, kStatusTimerIntervalMs, nullptr);
+            }
             const int tick = ++g_hotkeyRefreshTick;
             if ((tick % kHotkeyLabelRefreshEveryTicks) == 0) {
                 UpdateHotkeyLabels(hwnd);
@@ -2247,39 +2287,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         RECT clientRc{};
         GetClientRect(hwnd, &clientRc);
 
-        HDC paintDc = hdc;
-        HDC memDc = nullptr;
-        HBITMAP memBmp = nullptr;
-        HGDIOBJ oldBmp = nullptr;
-        bool bufferedPaint = false;
         const int clientW = std::max(0, static_cast<int>(clientRc.right - clientRc.left));
         const int clientH = std::max(0, static_cast<int>(clientRc.bottom - clientRc.top));
-        if (clientW > 0 && clientH > 0) {
-            memDc = CreateCompatibleDC(hdc);
-            if (memDc) {
-                memBmp = CreateCompatibleBitmap(hdc, clientW, clientH);
-                if (memBmp) {
-                    oldBmp = SelectObject(memDc, memBmp);
-                    paintDc = memDc;
-                    bufferedPaint = true;
-                } else {
-                    DeleteDC(memDc);
-                    memDc = nullptr;
-                }
-            }
-        }
-
-        PaintMainWindow(paintDc, clientRc);
-
-        if (bufferedPaint) {
-            const int copyW = std::max(0, static_cast<int>(ps.rcPaint.right - ps.rcPaint.left));
-            const int copyH = std::max(0, static_cast<int>(ps.rcPaint.bottom - ps.rcPaint.top));
-            if (copyW > 0 && copyH > 0) {
-                BitBlt(hdc, ps.rcPaint.left, ps.rcPaint.top, copyW, copyH, memDc, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
-            }
-            SelectObject(memDc, oldBmp);
-            DeleteObject(memBmp);
-            DeleteDC(memDc);
+        HDC buffer = g_mainBuffer.Acquire(hdc, clientW, clientH);
+        HDC paintDc = buffer ? buffer : hdc;
+        const int savedDc = SaveDC(paintDc);
+        IntersectClipRect(paintDc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right, ps.rcPaint.bottom);
+        PaintMainWindow(paintDc, clientRc, ps.rcPaint);
+        RestoreDC(paintDc, savedDc);
+        if (buffer) {
+            BitBlt(hdc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left, ps.rcPaint.bottom - ps.rcPaint.top,
+                   buffer, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
         }
         EndPaint(hwnd, &ps);
         return 0;
@@ -2295,6 +2313,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         DestroyWindow(hwnd);
         return 0;
     case WM_DESTROY:
+        g_mainBuffer.Release();
         if (g_miniHwnd) {
             DestroyWindow(g_miniHwnd);
             g_miniHwnd = nullptr;

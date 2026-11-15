@@ -117,10 +117,57 @@ void DrawEllipseAA(HDC hdc, const RECT& rc, const ShapeStyle& style) {
     }
 }
 
+// Uses the DC's built-in brush instead of creating a GDI brush per call.
 void FillSolidRect(HDC hdc, const RECT& rc, COLORREF color) {
-    HBRUSH b = CreateSolidBrush(color);
-    FillRect(hdc, &rc, b);
-    DeleteObject(b);
+    const COLORREF previous = SetDCBrushColor(hdc, color);
+    FillRect(hdc, &rc, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    SetDCBrushColor(hdc, previous);
+}
+
+// 1px rectangle outline with the DC's built-in pen.
+void FrameSolidRect(HDC hdc, const RECT& rc, COLORREF color) {
+    HGDIOBJ oldPen = SelectObject(hdc, GetStockObject(DC_PEN));
+    HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
+    const COLORREF previous = SetDCPenColor(hdc, color);
+    Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
+    SetDCPenColor(hdc, previous);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+}
+
+// Back buffer reused across paints; recreated only when the size changes.
+HDC BackBuffer::Acquire(HDC target, int width, int height) {
+    if (width <= 0 || height <= 0) {
+        return nullptr;
+    }
+    if (dc && (width != w || height != h)) {
+        Release();
+    }
+    if (!dc) {
+        dc = CreateCompatibleDC(target);
+        bmp = dc ? CreateCompatibleBitmap(target, width, height) : nullptr;
+        if (!dc || !bmp) {
+            Release();
+            return nullptr;
+        }
+        oldBmp = SelectObject(dc, bmp);
+        w = width;
+        h = height;
+    }
+    return dc;
+}
+
+void BackBuffer::Release() {
+    if (dc && oldBmp) {
+        SelectObject(dc, oldBmp);
+    }
+    if (bmp) DeleteObject(bmp);
+    if (dc) DeleteDC(dc);
+    dc = nullptr;
+    bmp = nullptr;
+    oldBmp = nullptr;
+    w = 0;
+    h = 0;
 }
 
 void DrawCard(HDC hdc, const RECT& rc) {
@@ -304,22 +351,12 @@ void DrawLevelMeter(HDC hdc, const RECT& meterRect, bool active, float visualDb,
         return;
     }
 
+    // The window paints into a back buffer already, so draw directly.
     HDC drawDc = hdc;
-    HDC memDc = CreateCompatibleDC(hdc);
+    HDC memDc = nullptr;
     HBITMAP memBmp = nullptr;
     HGDIOBJ oldBmp = nullptr;
-    bool buffered = false;
-    if (memDc) {
-        memBmp = CreateCompatibleBitmap(hdc, targetWidth, targetHeight);
-        if (memBmp) {
-            oldBmp = SelectObject(memDc, memBmp);
-            drawDc = memDc;
-            buffered = true;
-        } else {
-            DeleteDC(memDc);
-            memDc = nullptr;
-        }
-    }
+    const bool buffered = false;
 
     RECT rc = buffered ? RECT{ 0, 0, targetWidth, targetHeight } : meterRect;
     const int left = static_cast<int>(rc.left);
@@ -360,12 +397,8 @@ void DrawLevelMeter(HDC hdc, const RECT& meterRect, bool active, float visualDb,
             : (db == -12 || db == 0)
                 ? g_theme.meterGuideHot
                 : g_theme.meterGuide;
-        HPEN guidePen = CreatePen(PS_SOLID, 1, guideColor);
-        HGDIOBJ oldGuidePen = SelectObject(drawDc, guidePen);
-        MoveToEx(drawDc, x, barRc.top, nullptr);
-        LineTo(drawDc, x, barRc.bottom);
-        SelectObject(drawDc, oldGuidePen);
-        DeleteObject(guidePen);
+        RECT guideRc{ x, barRc.top, x + 1, barRc.bottom };
+        FillSolidRect(drawDc, guideRc, guideColor);
 
         RECT tickRc{ x, scaleRc.bottom - S(3), x + 1, scaleRc.bottom };
         FillSolidRect(drawDc, tickRc, g_theme.meterTick);
@@ -411,21 +444,12 @@ void DrawLevelMeter(HDC hdc, const RECT& meterRect, bool active, float visualDb,
             if (seg.right > seg.left) FillSolidRect(drawDc, seg, g_theme.meterRed);
         }
 
-        HPEN holdPen = CreatePen(PS_SOLID, std::max(1, S(2)), g_theme.meterHold);
-        HGDIOBJ oldPen = SelectObject(drawDc, holdPen);
-        MoveToEx(drawDc, barRc.left + holdPx, barRc.top, nullptr);
-        LineTo(drawDc, barRc.left + holdPx, barRc.bottom);
-        SelectObject(drawDc, oldPen);
-        DeleteObject(holdPen);
+        const int holdX = barRc.left + holdPx;
+        RECT holdRc{ holdX, barRc.top, std::min(static_cast<int>(barRc.right), holdX + std::max(1, S(2))), barRc.bottom };
+        FillSolidRect(drawDc, holdRc, g_theme.meterHold);
     }
 
-    HPEN border = CreatePen(PS_SOLID, 1, g_theme.meterBorder);
-    HGDIOBJ oldPen = SelectObject(drawDc, border);
-    HGDIOBJ oldBrush = SelectObject(drawDc, GetStockObject(HOLLOW_BRUSH));
-    Rectangle(drawDc, barRc.left, barRc.top, barRc.right, barRc.bottom);
-    SelectObject(drawDc, oldBrush);
-    SelectObject(drawDc, oldPen);
-    DeleteObject(border);
+    FrameSolidRect(drawDc, barRc, g_theme.meterBorder);
 
     if (buffered) {
         BitBlt(
@@ -498,22 +522,12 @@ void DrawClipStrip(HDC hdc, const RECT& rcStrip, float dangerUnit, bool clipRece
         return;
     }
 
+    // The window paints into a back buffer already, so draw directly.
     HDC drawDc = hdc;
-    HDC memDc = CreateCompatibleDC(hdc);
+    HDC memDc = nullptr;
     HBITMAP memBmp = nullptr;
     HGDIOBJ oldBmp = nullptr;
-    bool buffered = false;
-    if (memDc) {
-        memBmp = CreateCompatibleBitmap(hdc, targetWidth, targetHeight);
-        if (memBmp) {
-            oldBmp = SelectObject(memDc, memBmp);
-            drawDc = memDc;
-            buffered = true;
-        } else {
-            DeleteDC(memDc);
-            memDc = nullptr;
-        }
-    }
+    const bool buffered = false;
 
     RECT rc = buffered ? RECT{ 0, 0, targetWidth, targetHeight } : rcStrip;
     FillSolidRect(drawDc, rc, g_theme.card);
@@ -542,17 +556,11 @@ void DrawClipStrip(HDC hdc, const RECT& rcStrip, float dangerUnit, bool clipRece
         FillSolidRect(drawDc, seg, color);
     }
 
-    HPEN border = CreatePen(PS_SOLID, 1, clipRecent ? g_theme.clipPulse : g_theme.clipBorder);
-    HGDIOBJ oldPen = SelectObject(drawDc, border);
-    HGDIOBJ oldBrush = SelectObject(drawDc, GetStockObject(HOLLOW_BRUSH));
-    Rectangle(drawDc, rc.left, rc.top, rc.right, rc.bottom);
-    SelectObject(drawDc, oldBrush);
-    SelectObject(drawDc, oldPen);
-    DeleteObject(border);
+    FrameSolidRect(drawDc, rc, clipRecent ? g_theme.clipPulse : g_theme.clipBorder);
 
     SetBkMode(drawDc, TRANSPARENT);
     SetTextColor(drawDc, clipRecent ? g_theme.clipTextHot : g_theme.clipText);
-    SelectObject(drawDc, g_fontTiny ? g_fontTiny : (g_fontHint ? g_fontHint : g_fontSmall));
+    HGDIOBJ oldClipFont = SelectObject(drawDc, g_fontTiny ? g_fontTiny : (g_fontHint ? g_fontHint : g_fontSmall));
     RECT labelRc{ rc.left + S(5), rc.top, rc.right - S(52), rc.bottom };
     DrawTextW(drawDc, Tr(Str::ClipMeter), -1, &labelRc, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
 
@@ -570,6 +578,7 @@ void DrawClipStrip(HDC hdc, const RECT& rcStrip, float dangerUnit, bool clipRece
         const wchar_t* tag = L"CLIP";
         DrawTextW(drawDc, tag, -1, &pulse, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
     }
+    SelectObject(drawDc, oldClipFont);
 
     if (buffered) {
         BitBlt(
