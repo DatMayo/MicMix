@@ -111,7 +111,7 @@ Recommended setup:
 
 Prerequisites:
 
-- Windows + Visual Studio 2022 or Build Tools 2022 (workload "Desktop development with C++").
+- Windows + Visual Studio 2022 or newer, or the matching Build Tools (workload "Desktop development with C++"). The script picks the matching CMake generator automatically.
 - CMake `>= 3.21` (the copy bundled with Visual Studio is detected automatically).
 - Git.
 

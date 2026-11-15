@@ -6,9 +6,9 @@
     Runs the complete pipeline that CI and the release workflow use, so a local build
     produces exactly the same artifact:
 
-      1. Check prerequisites (git, CMake, Visual Studio 2022 C++ toolset)
+      1. Check prerequisites (git, CMake, Visual Studio 2022+ C++ toolset)
       2. Fetch the TeamSpeak 3 plugin SDK and speexdsp at pinned commits into third_party/
-      3. Configure with CMake (Visual Studio 17 2022, x64)
+      3. Configure with CMake (generator matching the installed Visual Studio, x64)
       4. Build
       5. Run the unit tests (ctest)
       6. Package dist/MicMix-<version>-win64.ts3_plugin (Release only)
@@ -47,7 +47,9 @@ param(
     # Copy the built plugin into the local TeamSpeak 3 client plugin folder.
     [switch]$Install,
 
-    [string]$Generator = "Visual Studio 17 2022",
+    # CMake generator. Default: picked from the newest installed Visual Studio
+    # (2022 -> "Visual Studio 17 2022", 2026 -> "Visual Studio 18 2026").
+    [string]$Generator = "",
 
     [string]$Arch = "x64"
 )
@@ -156,20 +158,47 @@ function Resolve-CMake {
     throw "CMake not found. Install CMake 3.21+ (https://cmake.org/download/) or the 'C++ CMake tools' Visual Studio component."
 }
 
-function Assert-VisualStudio {
-    if ($Generator -notlike "Visual Studio*") {
+# Finds the newest Visual Studio (2022 or later) with the C++ x64 toolset and, unless the
+# caller passed -Generator, selects the matching CMake Visual Studio generator.
+function Resolve-VisualStudio {
+    if ($Generator -and $Generator -notlike "Visual Studio*") {
         return
     }
     $vswhere = Find-VsWhere
     if (-not $vswhere) {
-        Write-Warning "vswhere.exe not found; cannot verify the Visual Studio installation. CMake will report missing toolsets."
+        if (-not $Generator) {
+            $script:Generator = "Visual Studio 17 2022"
+        }
+        Write-Warning "vswhere.exe not found; assuming '$script:Generator'. CMake will report missing toolsets."
         return
     }
-    $vsPath = & $vswhere -latest -products * -version "[17.0,18.0)" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-    if (-not $vsPath) {
-        throw "Visual Studio 2022 with the 'Desktop development with C++' workload is required (or Build Tools 2022)."
+    $ErrorActionPreference = "Continue"
+    $vsJson = & $vswhere -latest -products * -version "[17.0," -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json 2>$null
+    $ErrorActionPreference = "Stop"
+    $vs = $null
+    if ($vsJson) {
+        $parsed = ($vsJson -join "`n") | ConvertFrom-Json
+        $vs = @($parsed) | Select-Object -First 1
     }
-    Write-Info "Visual Studio: $vsPath"
+    if (-not $vs) {
+        throw "Visual Studio 2022 or newer with the 'Desktop development with C++' workload is required (Build Tools are enough)."
+    }
+    $major = [int](([string]$vs.installationVersion).Split(".")[0])
+    $productYear = ""
+    if ($vs.PSObject.Properties["catalog"] -and $vs.catalog.PSObject.Properties["productLineVersion"]) {
+        $productYear = [string]$vs.catalog.productLineVersion
+    }
+    if (-not $Generator) {
+        if (-not $productYear) {
+            $productYear = switch ($major) { 17 { "2022" } 18 { "2026" } default { "" } }
+        }
+        if (-not $productYear) {
+            throw "Unknown Visual Studio version $($vs.installationVersion). Pass -Generator explicitly."
+        }
+        $script:Generator = "Visual Studio $major $productYear"
+    }
+    Write-Info "Visual Studio: $($vs.displayName) $($vs.installationVersion)"
+    Write-Info "Generator:     $script:Generator"
 }
 
 function Sync-Dependency {
@@ -250,7 +279,7 @@ try {
         if ($ctestCmd) { $ctest = $ctestCmd.Source } else { $ctest = "ctest" }
     }
     Write-Info "CMake: $cmake"
-    Assert-VisualStudio
+    Resolve-VisualStudio
 
     # 2 -------------------------------------------------------------------------
     Write-Step "Fetching third-party dependencies"
