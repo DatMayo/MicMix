@@ -4,3 +4,6 @@
 #define MICMIX_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
 #define MICMIX_VERSION_MINOR @PROJECT_VERSION_MINOR@
 #define MICMIX_VERSION_PATCH @PROJECT_VERSION_PATCH@
+
+// GitHub repository ("owner/name") whose latest release is offered as an update.
+#define MICMIX_UPDATE_REPO "@MICMIX_UPDATE_REPO@"

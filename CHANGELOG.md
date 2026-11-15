@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Update notice: when the settings open, MicMix asks GitHub once per TeamSpeak session for the latest release of `DatMayo/MicMix`. If it is newer than the running version, a button in the sidebar links to the release page. Can be turned off on the `Appearance` page (`ui.update_check`). The repository is a CMake option (`MICMIX_UPDATE_REPO`).
+
 ## [1.4.0] - 2026-11-15
 
 ### Added

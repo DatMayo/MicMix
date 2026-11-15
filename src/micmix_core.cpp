@@ -638,7 +638,8 @@ bool IsSameSettings(const MicMixSettings& a, const MicMixSettings& b) {
            a.uiMiniPinned == b.uiMiniPinned &&
            a.uiMiniX == b.uiMiniX &&
            a.uiMiniY == b.uiMiniY &&
-           a.uiLanguage == b.uiLanguage;
+           a.uiLanguage == b.uiLanguage &&
+           a.uiUpdateCheck == b.uiUpdateCheck;
 }
 
 bool IsBlockedUiProcess(uint32_t pid, const std::wstring& exeName) {
@@ -1155,6 +1156,7 @@ bool ConfigStore::Load(MicMixSettings& outSettings, std::string& warning) {
     parseInt("ui.mini.x", outSettings.uiMiniX);
     parseInt("ui.mini.y", outSettings.uiMiniY);
     if (auto it = kv.find("ui.language"); it != kv.end()) outSettings.uiLanguage = it->second;
+    if (auto it = kv.find("ui.update_check"); it != kv.end()) outSettings.uiUpdateCheck = ::ParseBool(it->second, outSettings.uiUpdateCheck);
     if (parseIssue) {
         appendWarning("Config parse issue detected; fallback values were used.");
     }
@@ -1195,6 +1197,7 @@ bool ConfigStore::Save(const MicMixSettings& settings, std::string& error) {
     ss << "ui.mini.enabled=" << BoolToString(safe.uiMiniMode) << "\n";
     ss << "ui.mini.pinned=" << BoolToString(safe.uiMiniPinned) << "\n";
     ss << "ui.language=" << safe.uiLanguage << "\n";
+    ss << "ui.update_check=" << BoolToString(safe.uiUpdateCheck) << "\n";
     if (safe.uiMiniX != kUiPosUnset && safe.uiMiniY != kUiPosUnset) {
         ss << "ui.mini.x=" << safe.uiMiniX << "\n";
         ss << "ui.mini.y=" << safe.uiMiniY << "\n";

@@ -244,6 +244,7 @@ void DrawGlyph(HDC hdc, Glyph glyph, const RECT& box, COLORREF color, float stro
         g.DrawEllipse(&pen, X(14), Y(13), 6 * sc, 6 * sc);
         break;
     case Glyph::Compact: RR(3, 5, 18, 14, 2); RR(12, 11, 6, 5, 1); break;
+    case Glyph::Download: L(12, 4, 12, 15); L(7, 10, 12, 15); L(17, 10, 12, 15); L(5, 20, 19, 20); break;
     }
 }
 

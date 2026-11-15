@@ -150,6 +150,15 @@ ctest --test-dir build -C Release --output-on-failure
 .\scripts\package_ts3_plugin.ps1 -Configuration Release
 ```
 
+## Update Notice
+
+When the settings window is opened for the first time in a TeamSpeak session, MicMix requests
+`https://api.github.com/repos/DatMayo/MicMix/releases/latest` in the background. If that release is newer than
+the installed version, the sidebar shows `Update x.y.z available`, which opens the release page. Nothing is
+downloaded or installed automatically, and only the plugin version is sent (`User-Agent: MicMix/<version>`).
+Turn it off with `Check for updates` on the `Appearance` page (`ui.update_check=false`). Builds for another
+repository set `-DMICMIX_UPDATE_REPO=owner/name`.
+
 ## Releasing
 
 Releases are cut from the commits since the last `vX.Y.Z` tag. The next version follows

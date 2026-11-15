@@ -79,6 +79,7 @@ struct MicMixSettings {
     int         uiMiniX = kUiPosUnset;  // last mini window position (screen px)
     int         uiMiniY = kUiPosUnset;
     std::string uiLanguage = "auto";    // "auto" (follow TeamSpeak) or a language code
+    bool        uiUpdateCheck = true;    // look for new releases on GitHub
 };
 
 struct LoopbackDeviceInfo {

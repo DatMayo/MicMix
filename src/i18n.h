@@ -34,6 +34,7 @@ enum class Str : int {
     SourceHeaderChannels, SourceNoChannels, SourceHeaderApps, SourceNoApps, DefaultSuffix,
     MiniLive, MiniOff, MiniChooseSource, MiniMusic, MiniMic, MiniHotkeysHint, MiniHotkeyMusic, MiniHotkeyMic,
     WindowTitle,
+    UpdateAvailable, RowUpdateCheck, RowUpdateCheckSub,
     Count
 };
 

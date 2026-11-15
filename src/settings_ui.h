@@ -36,6 +36,7 @@ using std::min;
 #include <gdiplus.h>
 
 #include "i18n.h"
+#include "update_check.h"
 #include "micmix_core.h"
 #include "micmix_version.h"
 #include "resource.h"
@@ -70,6 +71,8 @@ enum ControlId {
     IDC_POWER = 1040,
     IDC_OPEN_MINI = 1041,
     IDC_LANGUAGE = 1042,
+    IDC_UPDATE = 1043,
+    IDC_UPDATE_CHECK = 1044,
     IDC_NAV_FIRST = 1050, // IDC_NAV_FIRST + page index
     IDC_NAV_LAST = 1054,
     // Mini window
@@ -94,7 +97,7 @@ enum UiPage {
 
 enum class Glyph {
     Check, Pause, Power, Alert, Mic, Source, Mix, Keyboard, Contrast, Pulse,
-    Pin, Expand, Close, Music, MicOff, Compact,
+    Pin, Expand, Close, Music, MicOff, Compact, Download,
 };
 
 enum class SourceChoiceType {
@@ -202,6 +205,7 @@ constexpr INT_PTR kSourceItemDivider = -11;
 constexpr INT_PTR kSourceItemPlaceholder = -12;
 constexpr UINT kMsgSourceRefreshDone = WM_APP + 0x31;
 constexpr UINT kMsgShowUi = WM_APP + 0x32;
+constexpr UINT kMsgUpdateFound = WM_APP + 0x33;
 constexpr UINT kTimerStatusUpdate = 1;
 constexpr UINT kTimerDebouncedSave = 2;
 constexpr UINT kStatusTimerIntervalMs = 40;
@@ -374,6 +378,16 @@ extern int g_miniPosX;
 extern std::string g_uiLanguage;
 extern int g_miniPosY;
 extern int g_miniLastFlags;
+
+extern bool g_ownerUpdateCheckChecked;
+
+// Update check (settings_window.cpp)
+void StartUpdateCheck();
+void StopUpdateCheck();
+void PublishUpdateInfo(const UpdateInfo& info);
+UpdateInfo GetUpdateInfo();
+void ShowUpdateHint(HWND hwnd);
+void DrawUpdateButton(const DRAWITEMSTRUCT* dis);
 
 inline int S(int px) {
     return MulDiv(px, g_dpi, 96);
