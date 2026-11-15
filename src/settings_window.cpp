@@ -384,6 +384,9 @@ constexpr int kRowPadPx = 18;
 constexpr int kMiniClientWidthPx = 360;
 constexpr int kMiniClientHeightPx = 476;
 constexpr int kMiniMeterSegments = 24;
+constexpr DWORD kMainWindowStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
+constexpr DWORD kMiniWindowStyle = WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU | WS_CLIPCHILDREN;
+
 constexpr wchar_t kRepoUrl[] = L"https://github.com/dabinuss/MicMix";
 
 HFONT g_fontBody = nullptr;
@@ -473,6 +476,11 @@ void RefreshMini(bool force);
 void SyncMiniFromMain();
 void UpdateStatusCardText(HWND hwnd, const SourceStatus& st);
 void ShowPage(HWND hwnd, int page, bool persist);
+void ApplyDpi(HWND source, int newDpi, const RECT* suggested);
+void SyncDpiToWindow(HWND w);
+void ApplyMiniFonts(HWND mini);
+int g_miniPosX = kUiPosUnset;
+int g_miniPosY = kUiPosUnset;
 
 bool IsOwnerCheckboxControlId(int id) {
     return id == IDC_AUTOSTART || id == IDC_FORCE_TX || id == IDC_MIC_INPUT_MUTE || id == IDC_MUTE;
@@ -814,27 +822,26 @@ void EnsureUiResources() {
     EnsureFallbackIcons();
 }
 
+void ReleaseFonts() {
+    for (HFONT* f : { &g_fontBody, &g_fontSmall, &g_fontHint, &g_fontTiny, &g_fontClipInfo, &g_fontControlLarge,
+                      &g_fontTitle, &g_fontMono, &g_fontButton, &g_fontSection, &g_fontPageTitle, &g_fontRowTitle,
+                      &g_fontBrand }) {
+        if (*f) {
+            DeleteObject(*f);
+            *f = nullptr;
+        }
+    }
+}
+
 void ReleaseUiResources() {
     ClearAppIconCache();
     DestroyIconHandle(g_loopbackFallbackIcon);
     DestroyIconHandle(g_appFallbackIcon);
-    if (g_fontBody) { DeleteObject(g_fontBody); g_fontBody = nullptr; }
-    if (g_fontSmall) { DeleteObject(g_fontSmall); g_fontSmall = nullptr; }
-    if (g_fontHint) { DeleteObject(g_fontHint); g_fontHint = nullptr; }
-    if (g_fontTiny) { DeleteObject(g_fontTiny); g_fontTiny = nullptr; }
-    if (g_fontClipInfo) { DeleteObject(g_fontClipInfo); g_fontClipInfo = nullptr; }
-    if (g_fontControlLarge) { DeleteObject(g_fontControlLarge); g_fontControlLarge = nullptr; }
-    if (g_fontTitle) { DeleteObject(g_fontTitle); g_fontTitle = nullptr; }
-    if (g_fontMono) { DeleteObject(g_fontMono); g_fontMono = nullptr; }
+    ReleaseFonts();
     if (g_brushBg) { DeleteObject(g_brushBg); g_brushBg = nullptr; }
     if (g_brushCard) { DeleteObject(g_brushCard); g_brushCard = nullptr; }
     if (g_brushInput) { DeleteObject(g_brushInput); g_brushInput = nullptr; }
-    if (g_fontButton) { DeleteObject(g_fontButton); g_fontButton = nullptr; }
-    if (g_fontSection) { DeleteObject(g_fontSection); g_fontSection = nullptr; }
     if (g_brushContent) { DeleteObject(g_brushContent); g_brushContent = nullptr; }
-    if (g_fontPageTitle) { DeleteObject(g_fontPageTitle); g_fontPageTitle = nullptr; }
-    if (g_fontRowTitle) { DeleteObject(g_fontRowTitle); g_fontRowTitle = nullptr; }
-    if (g_fontBrand) { DeleteObject(g_fontBrand); g_fontBrand = nullptr; }
 }
 
 void SetControlFont(HWND hwnd, int id, HFONT font) {
@@ -1533,6 +1540,10 @@ MicMixSettings CollectSettings(HWND hwnd) {
     s.micInputMuteHotkeyVk = static_cast<int>(g_micInputMuteHotkeyVk);
     s.uiThemeMode = g_themeMode;
     s.uiLastOpenTab = g_page;
+    s.uiMiniMode = g_miniMode.load(std::memory_order_acquire);
+    s.uiMiniPinned = g_miniPinned;
+    s.uiMiniX = g_miniPosX;
+    s.uiMiniY = g_miniPosY;
     return s;
 }
 
@@ -3320,7 +3331,9 @@ void ExitMiniMode(int page) {
             ShowPage(main, page, true);
         }
         ShowWindow(main, SW_SHOW);
+        SyncDpiToWindow(main);
         SetForegroundWindow(main);
+        ApplyLiveSettings(main, false);
     }
 }
 
@@ -3360,11 +3373,23 @@ LRESULT CALLBACK MiniWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         g_rcMiniHint = { S(18), S(444), S(342), S(466) };
         ApplyControlTheme(hwnd);
         InstallButtonHoverTracking(hwnd);
-        EnumChildWindows(hwnd, [](HWND child, LPARAM) -> BOOL {
-            SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(g_fontBody), TRUE);
-            return TRUE;
-        }, 0);
+        ApplyMiniFonts(hwnd);
         SendMessageW(hwnd, WM_CHANGEUISTATE, MAKEWPARAM(UIS_SET, UISF_HIDEFOCUS), 0);
+        return 0;
+    }
+    case WM_DPICHANGED:
+        ApplyDpi(hwnd, HIWORD(wParam), reinterpret_cast<const RECT*>(lParam));
+        return 0;
+    case WM_EXITSIZEMOVE: {
+        // Remember where the user dragged the mini window.
+        RECT rc{};
+        GetWindowRect(hwnd, &rc);
+        g_miniPosX = rc.left;
+        g_miniPosY = rc.top;
+        HWND main = g_hwnd.load(std::memory_order_acquire);
+        if (main) {
+            ApplyLiveSettings(main, false, false);
+        }
         return 0;
     }
     case WM_NCHITTEST: {
@@ -3432,6 +3457,7 @@ LRESULT CALLBACK MiniWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             g_miniPinned = !g_miniPinned;
             SetWindowPos(hwnd, g_miniPinned ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             InvalidateRect(GetDlgItem(hwnd, IDC_MINI_PIN), nullptr, FALSE);
+            if (main) ApplyLiveSettings(main, false);
             return 0;
         case IDC_MINI_MUTE_MUSIC:
             ToggleMainMute(false);
@@ -3514,8 +3540,19 @@ HWND CreateMiniWindow(HWND main) {
     GetWindowRect(main, &mainRc);
     const int w = S(kMiniClientWidthPx);
     const int h = S(kMiniClientHeightPx);
-    HWND mini = CreateWindowExW(WS_EX_APPWINDOW, L"MicMixMiniWindow", L"MicMix", WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU | WS_CLIPCHILDREN,
-                                mainRc.right - w, mainRc.top, w, h, nullptr, nullptr, hInst, nullptr);
+    int x = mainRc.right - w;
+    int y = mainRc.top;
+    // Restore the saved position only while it is still on a connected monitor.
+    if (g_miniPosX != kUiPosUnset && g_miniPosY != kUiPosUnset) {
+        const POINT probe{ g_miniPosX + S(40), g_miniPosY + S(20) };
+        if (MonitorFromPoint(probe, MONITOR_DEFAULTTONULL) != nullptr) {
+            x = g_miniPosX;
+            y = g_miniPosY;
+        }
+    }
+    const DWORD exStyle = WS_EX_APPWINDOW | (g_miniPinned ? WS_EX_TOPMOST : 0);
+    HWND mini = CreateWindowExW(exStyle, L"MicMixMiniWindow", L"MicMix", kMiniWindowStyle,
+                                x, y, w, h, nullptr, nullptr, hInst, nullptr);
     if (mini) {
         ApplyWindowFrameTheme(mini);
     }
@@ -3534,8 +3571,150 @@ void EnterMiniMode(HWND main) {
     g_miniMicLit = -1;
     ShowWindow(main, SW_HIDE);
     ShowWindow(g_miniHwnd, SW_SHOW);
+    SyncDpiToWindow(g_miniHwnd);
     SetForegroundWindow(g_miniHwnd);
     SyncMiniFromMain();
+    ApplyLiveSettings(main, false);
+}
+
+// ---------------------------------------------------------------------------------------
+// DPI handling (per-monitor v2): rescale fonts, layout and window sizes on DPI changes.
+// ---------------------------------------------------------------------------------------
+
+// Windows 10 1607+ APIs, resolved at runtime so older systems keep working (unscaled).
+void EnablePerMonitorDpiForThread() {
+    using SetCtxFn = HANDLE(WINAPI*)(HANDLE);
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    auto setCtx = user32 ? reinterpret_cast<SetCtxFn>(reinterpret_cast<void*>(GetProcAddress(user32, "SetThreadDpiAwarenessContext"))) : nullptr;
+    if (!setCtx) {
+        return;
+    }
+    // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (-4), falling back to PER_MONITOR_AWARE (-3).
+    if (!setCtx(reinterpret_cast<HANDLE>(static_cast<INT_PTR>(-4)))) {
+        setCtx(reinterpret_cast<HANDLE>(static_cast<INT_PTR>(-3)));
+    }
+}
+
+SIZE WindowSizeForClient(int clientW, int clientH, DWORD style, int dpi) {
+    RECT rc{ 0, 0, clientW, clientH };
+    using AdjustForDpiFn = BOOL(WINAPI*)(LPRECT, DWORD, BOOL, DWORD, UINT);
+    static AdjustForDpiFn adjust = []() -> AdjustForDpiFn {
+        HMODULE user32 = GetModuleHandleW(L"user32.dll");
+        return user32 ? reinterpret_cast<AdjustForDpiFn>(reinterpret_cast<void*>(GetProcAddress(user32, "AdjustWindowRectExForDpi"))) : nullptr;
+    }();
+    if (adjust) {
+        adjust(&rc, style, FALSE, 0, static_cast<UINT>(dpi));
+    } else {
+        AdjustWindowRectEx(&rc, style, FALSE, 0);
+    }
+    return { rc.right - rc.left, rc.bottom - rc.top };
+}
+
+void ApplyMiniFonts(HWND mini) {
+    EnumChildWindows(mini, [](HWND child, LPARAM) -> BOOL {
+        SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(g_fontBody), TRUE);
+        return TRUE;
+    }, 0);
+}
+
+struct DpiScale {
+    int from = 96;
+    int to = 96;
+    int Px(int v) const { return MulDiv(v, to, from); }
+    void Rect(RECT& r) const {
+        r = { Px(r.left), Px(r.top), Px(r.right), Px(r.bottom) };
+    }
+};
+
+void ScaleChildWindows(HWND parent, const DpiScale& scale) {
+    struct Ctx {
+        HWND parent;
+        const DpiScale* scale;
+    } ctx{ parent, &scale };
+    EnumChildWindows(parent, [](HWND child, LPARAM lp) -> BOOL {
+        const auto* c = reinterpret_cast<const Ctx*>(lp);
+        if (GetParent(child) != c->parent) {
+            return TRUE;
+        }
+        RECT rc{};
+        GetWindowRect(child, &rc);
+        MapWindowPoints(nullptr, c->parent, reinterpret_cast<LPPOINT>(&rc), 2);
+        c->scale->Rect(rc);
+        wchar_t cls[32]{};
+        GetClassNameW(child, cls, static_cast<int>(std::size(cls)));
+        if (_wcsicmp(cls, WC_COMBOBOXW) == 0) {
+            // For a drop-down list the height passed to MoveWindow includes the open list.
+            MoveWindow(child, rc.left, rc.top, rc.right - rc.left, S(300), FALSE);
+            SendMessageW(child, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), S(24));
+            SendMessageW(child, CB_SETITEMHEIGHT, 0, S(24));
+        } else {
+            MoveWindow(child, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, FALSE);
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&ctx));
+}
+
+// Moves both windows to a new DPI. `source` received WM_DPICHANGED and gets the
+// suggested rectangle; the other window keeps its position and is resized.
+void ApplyDpi(HWND source, int newDpi, const RECT* suggested) {
+    HWND main = g_hwnd.load(std::memory_order_acquire);
+    HWND mini = g_miniHwnd;
+    if (newDpi <= 0 || newDpi == g_dpi) {
+        if (source && suggested) {
+            SetWindowPos(source, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
+                         suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        return;
+    }
+    const DpiScale scale{ g_dpi, newDpi };
+    g_dpi = newDpi;
+    ReleaseFonts();
+    EnsureUiResources();
+
+    for (auto& row : g_rows) {
+        scale.Rect(row.rc);
+        row.textRight = scale.Px(row.textRight);
+    }
+    for (auto& card : g_cards) {
+        scale.Rect(card.rc);
+    }
+    for (RECT* r : { &g_rcHeaderBadge, &g_rcMeter, &g_rcMicMeter, &g_rcMusicClip, &g_rcMicClip, &g_rcStatus,
+                     &g_rcThemeSegment, &g_rcMiniPanel, &g_rcMiniGainText, &g_rcMiniMusicMeter, &g_rcMiniMicMeter,
+                     &g_rcMiniHint }) {
+        scale.Rect(*r);
+    }
+
+    const auto resize = [&](HWND w, int clientW, int clientH, DWORD style) {
+        if (!w) {
+            return;
+        }
+        if (w == source && suggested) {
+            SetWindowPos(w, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
+                         suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+            return;
+        }
+        const SIZE sz = WindowSizeForClient(S(clientW), S(clientH), style, g_dpi);
+        SetWindowPos(w, nullptr, 0, 0, sz.cx, sz.cy, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+    };
+    if (main) {
+        ScaleChildWindows(main, scale);
+        ApplyFonts(main);
+        resize(main, kClientWidthPx, kClientHeightPx, kMainWindowStyle);
+        RedrawWindow(main, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
+    }
+    if (mini) {
+        ScaleChildWindows(mini, scale);
+        ApplyMiniFonts(mini);
+        resize(mini, kMiniClientWidthPx, kMiniClientHeightPx, kMiniWindowStyle);
+        RedrawWindow(mini, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_FRAME);
+    }
+}
+
+// After a window is shown on another monitor, bring the shared layout to that monitor's DPI.
+void SyncDpiToWindow(HWND w) {
+    if (w) {
+        ApplyDpi(nullptr, static_cast<int>(GetDpiForWindow(w)), nullptr);
+    }
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -3837,6 +4016,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         UpdateStatus(hwnd);
         return 0;
     }
+    case WM_DPICHANGED:
+        ApplyDpi(hwnd, HIWORD(wParam), reinterpret_cast<const RECT*>(lParam));
+        return 0;
     case kMsgShowUi:
         if (g_miniMode.load(std::memory_order_acquire) && g_miniHwnd) {
             ShowWindow(g_miniHwnd, SW_SHOWNORMAL);
@@ -4197,6 +4379,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 void WindowThreadMain() {
+    EnablePerMonitorDpiForThread();
     INITCOMMONCONTROLSEX icc{ sizeof(icc), ICC_STANDARD_CLASSES | ICC_BAR_CLASSES };
     InitCommonControlsEx(&icc);
 
@@ -4225,23 +4408,23 @@ void WindowThreadMain() {
     UnregisterClassW(wc.lpszClassName, hInst);
     RegisterClassExW(&wc);
 
+    {
+        // Restore mini state before the first window exists.
+        const MicMixSettings initial = MicMixApp::Instance().GetSettings();
+        g_miniPinned = initial.uiMiniPinned;
+        g_miniPosX = initial.uiMiniX;
+        g_miniPosY = initial.uiMiniY;
+    }
+    const SIZE initialSize = WindowSizeForClient(S(kClientWidthPx), S(kClientHeightPx), kMainWindowStyle, g_dpi);
     HWND hwnd = CreateWindowExW(
         0,
         wc.lpszClassName,
         L"MicMix Settings",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
+        kMainWindowStyle,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        []() {
-            RECT rc{ 0, 0, S(kClientWidthPx), S(kClientHeightPx) };
-            AdjustWindowRectEx(&rc, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE, 0);
-            return rc.right - rc.left;
-        }(),
-        []() {
-            RECT rc{ 0, 0, S(kClientWidthPx), S(kClientHeightPx) };
-            AdjustWindowRectEx(&rc, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE, 0);
-            return rc.bottom - rc.top;
-        }(),
+        initialSize.cx,
+        initialSize.cy,
         nullptr,
         nullptr,
         hInst,
@@ -4250,11 +4433,20 @@ void WindowThreadMain() {
         g_running.store(false, std::memory_order_release);
         return;
     }
+    // WM_CREATE laid out the window at its monitor's DPI; size the frame to match.
+    {
+        const SIZE sz = WindowSizeForClient(S(kClientWidthPx), S(kClientHeightPx), kMainWindowStyle, g_dpi);
+        SetWindowPos(hwnd, nullptr, 0, 0, sz.cx, sz.cy, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
+    }
     SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(LoadIconW(hInst, MAKEINTRESOURCEW(IDI_APP_ICON))));
     SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(LoadIconW(hInst, MAKEINTRESOURCEW(IDI_APP_ICON_SMALL))));
     g_hwnd.store(hwnd, std::memory_order_release);
-    ShowWindow(hwnd, SW_SHOW);
-    UpdateWindow(hwnd);
+    if (MicMixApp::Instance().GetSettings().uiMiniMode) {
+        EnterMiniMode(hwnd);
+    } else {
+        ShowWindow(hwnd, SW_SHOW);
+        UpdateWindow(hwnd);
+    }
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

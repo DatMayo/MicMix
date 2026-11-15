@@ -198,6 +198,40 @@ bool TestUiThemeRoundTrip() {
     return pass;
 }
 
+bool TestMiniWindowStateRoundTrip() {
+    const fs::path base = MakeUniqueBaseDir("ui_mini");
+    ConfigStore store(base.string());
+    bool pass = true;
+
+    MicMixSettings defaults{};
+    pass &= Expect(!defaults.uiMiniMode && !defaults.uiMiniPinned, "Mini mode should default to off and unpinned");
+    pass &= Expect(defaults.uiMiniX == kUiPosUnset && defaults.uiMiniY == kUiPosUnset, "Mini position should default to unset");
+
+    MicMixSettings settings{};
+    settings.uiMiniMode = true;
+    settings.uiMiniPinned = true;
+    settings.uiMiniX = -1700;
+    settings.uiMiniY = 240;
+    std::string error;
+    pass &= Expect(store.Save(settings, error), "Save(ui_mini) should succeed: " + error);
+
+    MicMixSettings loaded{};
+    std::string warning;
+    pass &= Expect(store.Load(loaded, warning), "Load(ui_mini) should succeed");
+    pass &= Expect(loaded.uiMiniMode, "Mini mode should survive save/load");
+    pass &= Expect(loaded.uiMiniPinned, "Mini pin state should survive save/load");
+    pass &= Expect(loaded.uiMiniX == -1700 && loaded.uiMiniY == 240, "Mini position (incl. negative x) should survive save/load");
+
+    if (!WriteFile(store.ConfigPath(), "ui.mini.x=50\nui.mini.y=999999\n")) {
+        std::cerr << "FAIL: could not write config file for ui_mini" << std::endl;
+        return false;
+    }
+    MicMixSettings bogus{};
+    pass &= Expect(store.Load(bogus, warning), "Load(ui_mini bogus) should succeed");
+    pass &= Expect(bogus.uiMiniX == kUiPosUnset && bogus.uiMiniY == kUiPosUnset, "Out-of-range position should reset both coordinates");
+    return pass;
+}
+
 } // namespace
 
 int main() {
@@ -215,6 +249,9 @@ int main() {
         ++failed;
     }
     if (!TestUiThemeRoundTrip()) {
+        ++failed;
+    }
+    if (!TestMiniWindowStateRoundTrip()) {
         ++failed;
     }
     CleanupTempDirs();

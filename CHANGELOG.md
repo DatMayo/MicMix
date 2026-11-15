@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Mini mode remembers its state: if MicMix was closed in mini mode it reopens in mini mode, at the last position and with the same pin state (`ui.mini.*` in the config). A saved position on a disconnected monitor is ignored.
+- Every CI run attaches the built `.ts3_plugin` as a downloadable artifact (kept 14 days), so changes can be tested in TeamSpeak before merging.
+
+### Fixed
+
+- Settings and mini window now follow per-monitor DPI: moving a window to a monitor with a different scaling rescales fonts, layout and window size instead of staying blurry or cropped.
+- The window is sized for the monitor's scaling when it opens; at 125 % or 150 % it was previously created too small for its content.
+
 ## [1.3.1] - 2026-11-15
 
 ### Fixed
