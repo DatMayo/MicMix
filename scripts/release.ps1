@@ -75,8 +75,8 @@ function Get-GitLines {
     if ($LASTEXITCODE -ne 0) {
         return @()
     }
-    # Comma keeps the array intact: PowerShell would unroll an empty array to $null.
-    return ,@($output | Where-Object { $_ -ne $null })
+    # Callers wrap the call in @() so empty or single results are still arrays.
+    return @($output | Where-Object { $_ -ne $null })
 }
 
 function ConvertTo-SemVer {
