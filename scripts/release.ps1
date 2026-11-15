@@ -121,7 +121,11 @@ try {
 
     $branch = @(Get-GitLines -ArgumentList @("rev-parse", "--abbrev-ref", "HEAD")) | Select-Object -First 1
     if (-not $branch -or $branch -eq "HEAD") {
-        throw "Detached HEAD: check out the branch you want to release from."
+        # A dry run only reads history, so it also works on CI's detached PR merge checkout.
+        if (-not $DryRun) {
+            throw "Detached HEAD: check out the branch you want to release from."
+        }
+        $branch = "(detached HEAD)"
     }
 
     # 1. Commits since the last release tag ------------------------------------------
