@@ -12,7 +12,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Refreshed settings UI: rounded cards with soft shadows, anti-aliased drawing via GDI+, modern push buttons with hover/pressed states, on/off switches instead of checkboxes, custom-painted dropdowns, slimmer slider with accent fill, section accents and a framed status console.
+- New settings window in the Windows 11 style: sidebar navigation (Source, Mix, Hotkeys, Appearance, Diagnostics), a status card with a master On/Off switch on every page, and settings grouped as rows in cards. The last open page is remembered.
+- Mini mode: a compact, draggable window with a large power button, source chip, volume slider, music/mic meters and mute buttons. It can be pinned on top and expanded back into the full window.
+- Anti-aliased drawing via GDI+, on/off switches instead of checkboxes, custom-painted dropdowns, slimmer slider with accent fill.
 - CI and the release workflow now run `scripts/build.ps1`, so local and CI builds follow the same steps.
 
 ### Fixed

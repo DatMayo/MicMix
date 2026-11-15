@@ -150,9 +150,18 @@ ctest --test-dir build -C Release --output-on-failure
 .\scripts\package_ts3_plugin.ps1 -Configuration Release
 ```
 
+## Settings Window
+
+The settings window uses a sidebar with five pages: `Source`, `Mix`, `Hotkeys`, `Appearance` and `Diagnostics`.
+The status card at the top shows what MicMix is doing and holds the master On/Off switch.
+
+`Mini mode` (bottom of the sidebar) switches to a compact window with a power button, the current source,
+music volume, level meters and mute buttons. Pin it to keep it above other windows; the expand button returns
+to the full window.
+
 ## Appearance (Dark Mode)
 
-The settings window has an `Appearance` selector in the top card:
+The `Appearance` page has a theme selector:
 
 - `System` (default) follows the Windows setting *Settings → Personalization → Colors → Choose your app mode* and switches live.
 - `Light` / `Dark` force a theme.
