@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-15
+
+### Fixed
+
+- Stop the microphone dropdown from flickering (3c6b59c)
+
+### Changed
+
+- Remove orphaned vst3sdk submodule entry (0ab8aca)
+
 ## [1.3.0] - 2026-11-15
 
 ### Added
