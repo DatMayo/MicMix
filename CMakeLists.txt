@@ -54,6 +54,10 @@ add_library(micmix SHARED
   src/plugin_main.cpp
   src/micmix_core.cpp
   src/settings_window.cpp
+  src/ui_theme.cpp
+  src/ui_draw.cpp
+  src/ui_controls.cpp
+  src/mini_window.cpp
   src/i18n.cpp
   resources/micmix.rc
 )
@@ -119,6 +123,10 @@ if(MICMIX_BUILD_TESTS)
     tests/config_store_tests.cpp
     src/micmix_core.cpp
     src/settings_window.cpp
+    src/ui_theme.cpp
+    src/ui_draw.cpp
+    src/ui_controls.cpp
+    src/mini_window.cpp
     src/i18n.cpp
   )
 
