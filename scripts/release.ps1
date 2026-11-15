@@ -75,7 +75,8 @@ function Get-GitLines {
     if ($LASTEXITCODE -ne 0) {
         return @()
     }
-    return @($output | Where-Object { $_ -ne $null })
+    # Comma keeps the array intact: PowerShell would unroll an empty array to $null.
+    return ,@($output | Where-Object { $_ -ne $null })
 }
 
 function ConvertTo-SemVer {
@@ -112,23 +113,23 @@ try {
     }
 
     if (-not $AllowDirty -and -not $DryRun) {
-        $dirty = Get-GitLines -ArgumentList @("status", "--porcelain", "--untracked-files=no")
+        $dirty = @(Get-GitLines -ArgumentList @("status", "--porcelain", "--untracked-files=no"))
         if ($dirty.Count -gt 0) {
             throw "Working tree has uncommitted changes. Commit or stash them, or pass -AllowDirty."
         }
     }
 
-    $branch = (Get-GitLines -ArgumentList @("rev-parse", "--abbrev-ref", "HEAD")) | Select-Object -First 1
+    $branch = @(Get-GitLines -ArgumentList @("rev-parse", "--abbrev-ref", "HEAD")) | Select-Object -First 1
     if (-not $branch -or $branch -eq "HEAD") {
         throw "Detached HEAD: check out the branch you want to release from."
     }
 
     # 1. Commits since the last release tag ------------------------------------------
-    $lastTag = (Get-GitLines -ArgumentList @("describe", "--tags", "--abbrev=0", "--match", "v*")) | Select-Object -First 1
+    $lastTag = @(Get-GitLines -ArgumentList @("describe", "--tags", "--abbrev=0", "--match", "v*")) | Select-Object -First 1
     $range = if ($lastTag) { "$lastTag..HEAD" } else { "HEAD" }
     $sep = [char]0x1f
     $end = [char]0x1e
-    $raw = (Get-GitLines -ArgumentList @("log", $range, "--no-merges", "--format=%h$sep%s$sep%b$end")) -join "`n"
+    $raw = @(Get-GitLines -ArgumentList @("log", $range, "--no-merges", "--format=%h$sep%s$sep%b$end")) -join "`n"
     $commits = @()
     foreach ($entry in ($raw -split [regex]::Escape([string]$end))) {
         $entry = $entry.Trim()
@@ -182,7 +183,7 @@ try {
         }
     }
     $tag = "v$newVersion"
-    if ((Get-GitLines -ArgumentList @("tag", "--list", $tag)).Count -gt 0) {
+    if (@(Get-GitLines -ArgumentList @("tag", "--list", $tag)).Count -gt 0) {
         throw "Tag $tag already exists."
     }
 
@@ -194,6 +195,7 @@ try {
     } else {
         $groups = [ordered]@{ "Breaking" = @(); "Added" = @(); "Fixed" = @(); "Changed" = @() }
         foreach ($c in $commits) {
+            if (-not $c.Description) { continue }
             $text = $c.Description.Substring(0, 1).ToUpperInvariant() + $c.Description.Substring(1)
             $line = "- $text ($($c.Hash))"
             if ($c.Breaking) { $groups["Breaking"] += $line }
