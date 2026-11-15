@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-15
+
 ### Added
 
 - Dark mode for the settings window with an `Appearance` selector (`System` / `Light` / `Dark`). `System` follows the Windows app theme live; the choice is saved as `ui.theme` in the config.
