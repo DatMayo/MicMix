@@ -25,6 +25,14 @@ jobs:
         shell: pwsh
         run: ./scripts/build.ps1 -Configuration Release
 
+      - name: Upload plugin package
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: MicMix-${{ github.sha }}
+          path: dist/*.ts3_plugin
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Release dry run
         shell: pwsh
         run: ./scripts/release.ps1 -DryRun
