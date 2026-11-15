@@ -1669,15 +1669,15 @@ void ApplyFonts(HWND hwnd) {
         SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(g_fontBody), TRUE);
         return TRUE;
     }, 0);
-    HFONT small = g_fontSmall ? g_fontSmall : g_fontBody;
-    SetControlFont(hwnd, IDC_VERSION, small);
-    SetControlFont(hwnd, IDC_REPO_LINK, small);
-    SetControlFont(hwnd, IDC_METER_TEXT, small);
-    SetControlFont(hwnd, IDC_MIC_METER_TEXT, small);
-    SetControlFont(hwnd, IDC_MUSIC_CLIP_EVENTS, g_fontClipInfo ? g_fontClipInfo : small);
-    SetControlFont(hwnd, IDC_MIC_CLIP_EVENTS, g_fontClipInfo ? g_fontClipInfo : small);
-    SetControlFont(hwnd, IDC_MUTE_HOTKEY_TEXT, small);
-    SetControlFont(hwnd, IDC_MIC_INPUT_HOTKEY_TEXT, small);
+    HFONT smallFont = g_fontSmall ? g_fontSmall : g_fontBody;
+    SetControlFont(hwnd, IDC_VERSION, smallFont);
+    SetControlFont(hwnd, IDC_REPO_LINK, smallFont);
+    SetControlFont(hwnd, IDC_METER_TEXT, smallFont);
+    SetControlFont(hwnd, IDC_MIC_METER_TEXT, smallFont);
+    SetControlFont(hwnd, IDC_MUSIC_CLIP_EVENTS, g_fontClipInfo ? g_fontClipInfo : smallFont);
+    SetControlFont(hwnd, IDC_MIC_CLIP_EVENTS, g_fontClipInfo ? g_fontClipInfo : smallFont);
+    SetControlFont(hwnd, IDC_MUTE_HOTKEY_TEXT, smallFont);
+    SetControlFont(hwnd, IDC_MIC_INPUT_HOTKEY_TEXT, smallFont);
 }
 
 Gdiplus::Color ToGdiColor(COLORREF c, BYTE alpha = 255) {
